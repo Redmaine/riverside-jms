@@ -2,9 +2,12 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://fkefbeld.supabase.co";
+const SUPABASE_URL = "https://fkefbeldsulasuypovwz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_i3eFOMb1DxqPVMQHYpoUkg_4VU3raP1";
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+  global: { headers: { "apikey": "sb_publishable_i3eFOMb1DxqPVMQHYpoUkg_4VU3raP1" } }
+});
 
 const COMPANY = "Riverside Sheet Metal & Fabrication";
 const COMPANY_ADDR = "Unit 4, Riverside Industrial Estate, Luton, LU1 1AA";
