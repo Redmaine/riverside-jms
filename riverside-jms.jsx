@@ -5,10 +5,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = "https://hzxfskdcluuluzpzevnz.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eGZza2RjbHV1bHV6cHpldm56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5ODM0NTQsImV4cCI6MjA5MzU1OTQ1NH0.D2mXA0yDZQFYBrh09kjlzV4W49f792XBqsP5TCpOo3s";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-  auth: { persistSession: false, autoRefreshToken: false },
-  global: { headers: { "apikey": "sb_publishable_i3eFOMb1DxqPVMQHYpoUkg_4VU3raP1" } }
-});
-
 const COMPANY = "Riverside Sheet Metal & Fabrication";
 const COMPANY_ADDR = "Unit 4, Riverside Industrial Estate, Luton, LU1 1AA";
 const COMPANY_TEL = "01234 567890";
