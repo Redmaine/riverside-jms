@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://fkefbeldsulasuypovwz.supabase.co";
-const SUPABASE_KEY = "sb_publishable_i3eFOMb1DxqPVMQHYpoUkg_4VU3raP1";
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+const SUPABASE_URL = "https://hzxfskdcluuluzpzevnz.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eGZza2RjbHV1bHV6cHpldm56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5ODM0NTQsImV4cCI6MjA5MzU1OTQ1NH0.D2mXA0yDZQFYBrh09kjlzV4W49f792XBqsP5TCpOo3s";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   auth: { persistSession: false, autoRefreshToken: false },
   global: { headers: { "apikey": "sb_publishable_i3eFOMb1DxqPVMQHYpoUkg_4VU3raP1" } }
 });
