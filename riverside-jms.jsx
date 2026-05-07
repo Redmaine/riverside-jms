@@ -1,16 +1,22 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Inject print CSS to hide back button
+const printStyle = document.createElement("style");
+printStyle.innerHTML = "@media print { .no-print { display: none !important; } }";
+document.head.appendChild(printStyle);
+
 const SUPABASE_URL = "https://hzxfskdcluuluzpzevnz.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eGZza2RjbHV1bHV6cHpldm56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5ODM0NTQsImV4cCI6MjA5MzU1OTQ1NH0.D2mXA0yDZQFYBrh09kjlzV4W49f792XBqsP5TCpOo3s";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const COMPANY = "Riverside Sheet Metal & Fabrication";
+const COMPANY = "Riverside Sheetmetal Fabrications Ltd";
+const COMPANY_SHORT = "RIVERSIDE";
 const COMPANY_ADDR = "L2 Riverside Industrial Estate, Littlehampton, West Sussex, BN17 5DF";
 const COMPANY_TEL = "01903 732486";
 const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
-const VERSION = "v4.0";
+const VERSION = "v5.0";
 
 const STATUS_FLOW = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
 const PRESET_STAGES = ["Cutting", "Laser Cutting", "Welding", "Bending / Forming", "Punching", "Rolling", "Grinding", "Powder Coat", "Painting", "Assembly", "QC Check"];
@@ -318,7 +324,7 @@ export default function App(){
           <Logo/>
           <div>
             <div style={{fontWeight:800,fontSize:15,letterSpacing:2,color:C.white}}>RIVERSIDE</div>
-            <div style={{fontSize:9,letterSpacing:1,color:C.silver,marginTop:1}}>Sheet Metal & Fabrication · Job Management {VERSION}</div>
+            <div style={{fontSize:9,letterSpacing:1,color:C.silver,marginTop:1}}>Sheetmetal Fabrications Ltd · Job Management {VERSION}</div>
           </div>
         </div>
         <nav style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
@@ -681,6 +687,7 @@ function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRem
         <Btn onClick={onDelivery}>Delivery Note</Btn>
         <Btn danger onClick={onDelete}>Delete</Btn>
       </div>
+      <FileAttachments job={job}/>
     </div>
   );
 }
@@ -850,7 +857,7 @@ function MondayReport({jobs,onClose}){
   useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
-      <button onClick={onClose} style={{marginBottom:20,background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}}>← Back</button>
+      <button onClick={onClose} style={{marginBottom:20,background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}} className="no-print">← Back</button>
       <div style={{borderBottom:"3px solid #c9a84c",paddingBottom:16,marginBottom:20,display:"flex",justifyContent:"space-between"}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
@@ -877,7 +884,7 @@ function PrintSheet({job,onClose}){
   useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
-      <button onClick={onClose} style={{marginBottom:20,background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}}>← Back</button>
+      <button onClick={onClose} style={{marginBottom:20,background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}} className="no-print">← Back</button>
       <div style={{borderBottom:"3px solid #0f2a4a",paddingBottom:16,marginBottom:20,display:"flex",justifyContent:"space-between"}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
@@ -911,7 +918,7 @@ function DeliveryNote({job,onClose}){
   const linesToShow=(job.lines||[]).filter(l=>!l.delivered||(job._partLines&&job._partLines.includes(l.id)));
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
-      <button onClick={onClose} style={{marginBottom:20,background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}}>← Back</button>
+      <button onClick={onClose} style={{marginBottom:20,background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}} className="no-print">← Back</button>
       <div style={{borderBottom:"3px solid #c9a84c",paddingBottom:16,marginBottom:24,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
@@ -946,6 +953,95 @@ function DeliveryNote({job,onClose}){
         <div><div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:20}}>Despatched by (Riverside)</div><div style={{borderBottom:"1px solid #000",marginBottom:6,height:32}}/><div style={{fontSize:11,color:"#888"}}>Name: ________________________________</div><div style={{fontSize:11,color:"#888",marginTop:6}}>Date: ________________________________</div></div>
       </div>
       <div style={{marginTop:40,fontSize:10,color:"#bbb",borderTop:"1px solid #eee",paddingTop:10,textAlign:"center"}}>{COMPANY} · {COMPANY_ADDR} · {COMPANY_TEL} · Delivery Note {job.job_ref} · {VERSION}</div>
+    </div>
+  );
+}
+
+
+// ── FILE ATTACHMENTS ──────────────────────────────────────────────────────────
+function FileAttachments({job}){
+  const[files,setFiles]=useState([]);
+  const[uploading,setUploading]=useState(false);
+  const[dragOver,setDragOver]=useState(false);
+  const[category,setCategory]=useState("Other");
+  const cats=["Drawing","Purchase Order","Email / Correspondence","Other"];
+
+  useEffect(()=>{if(job.id)loadFiles();},[job.id]);
+
+  async function loadFiles(){
+    const{data}=await supabase.from("job_files").select("*").eq("job_id",job.id).order("uploaded_at",{ascending:false});
+    if(data)setFiles(data);
+  }
+
+  async function uploadFile(file){
+    if(!file)return;
+    setUploading(true);
+    const path=`${job.id}/${Date.now()}_${file.name}`;
+    const{error:upErr}=await supabase.storage.from("job-files").upload(path,file);
+    if(upErr){alert("Upload failed: "+upErr.message);setUploading(false);return;}
+    await supabase.from("job_files").insert([{job_id:job.id,job_ref:job.job_ref,file_name:file.name,file_path:path,file_type:file.type,category}]);
+    await loadFiles();
+    setUploading(false);
+  }
+
+  async function deleteFile(f){
+    await supabase.storage.from("job-files").remove([f.file_path]);
+    await supabase.from("job_files").delete().eq("id",f.id);
+    await loadFiles();
+  }
+
+  async function openFile(f){
+    const{data}=await supabase.storage.from("job-files").createSignedUrl(f.file_path,3600);
+    if(data?.signedUrl)window.open(data.signedUrl,"_blank");
+  }
+
+  function onDrop(e){
+    e.preventDefault();setDragOver(false);
+    const file=e.dataTransfer.files[0];
+    if(file)uploadFile(file);
+  }
+
+  function catIcon(cat){
+    if(cat==="Drawing")return"📐";
+    if(cat==="Purchase Order")return"📄";
+    if(cat==="Email / Correspondence")return"✉️";
+    return"📎";
+  }
+
+  return(
+    <div style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:700,fontSize:13,color:C.navy,marginBottom:10}}>Attached Files</div>
+      {/* Category selector */}
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+        {cats.map(c=><button key={c} style={{background:category===c?C.navy:C.white,color:category===c?C.white:C.textMid,border:`1px solid ${category===c?C.navy:C.border}`,borderRadius:20,padding:"3px 10px",fontFamily:"inherit",fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>setCategory(c)}>{c}</button>)}
+      </div>
+      {/* Drop zone */}
+      <div
+        onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+        onDragLeave={()=>setDragOver(false)}
+        onDrop={onDrop}
+        style={{border:`2px dashed ${dragOver?C.accent:C.border}`,borderRadius:8,padding:"16px 12px",textAlign:"center",background:dragOver?"#e8f0fb":C.white,marginBottom:10,cursor:"pointer",transition:"all .2s"}}
+        onClick={()=>document.getElementById("file-upload-"+job.id).click()}
+      >
+        <input id={"file-upload-"+job.id} type="file" style={{display:"none"}} onChange={e=>uploadFile(e.target.files[0])} accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.eml,.msg"/>
+        {uploading
+          ?<div style={{color:C.textLight,fontSize:13}}>Uploading…</div>
+          :<div style={{color:C.textLight,fontSize:13}}>📎 Drag a file here or click to browse<br/><span style={{fontSize:11,marginTop:4,display:"block"}}>PDF, image, Word, Excel, email — will be saved as: {category}</span></div>
+        }
+      </div>
+      {/* File list */}
+      {files.length===0&&<div style={{color:C.textLight,fontSize:13}}>No files attached yet.</div>}
+      {files.map(f=>(
+        <div key={f.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+          <span style={{fontSize:18,flexShrink:0}}>{catIcon(f.category)}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}} onClick={()=>openFile(f)}>{f.file_name}</div>
+            <div style={{fontSize:11,color:C.textLight}}>{f.category} · {f.uploaded_at?new Date(f.uploaded_at).toLocaleDateString("en-GB"):""}</div>
+          </div>
+          <button style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",cursor:"pointer",color:C.accent,fontSize:11,fontFamily:"inherit"}} onClick={()=>openFile(f)}>Open</button>
+          <button style={{background:"none",border:`1px solid ${C.danger}44`,borderRadius:4,padding:"3px 8px",cursor:"pointer",color:C.danger,fontSize:11,fontFamily:"inherit"}} onClick={()=>deleteFile(f)}>Delete</button>
+        </div>
+      ))}
     </div>
   );
 }
