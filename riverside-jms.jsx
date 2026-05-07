@@ -16,7 +16,7 @@ const COMPANY_ADDR = "L2 Riverside Industrial Estate, Littlehampton, West Sussex
 const COMPANY_TEL = "01903 732486";
 const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
-const VERSION = "v5.0";
+const VERSION = "v6.0";
 
 const STATUS_FLOW = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
 const PRESET_STAGES = ["Cutting", "Laser Cutting", "Welding", "Bending / Forming", "Punching", "Rolling", "Grinding", "Powder Coat", "Painting", "Assembly", "QC Check"];
@@ -52,7 +52,7 @@ function isDueTomorrow(j){if(!j.due_date||["Invoiced","Ready to Despatch"].inclu
 function lineTotal(lines){return(lines||[]).reduce((a,l)=>a+(parseFloat(l.qty||1)*parseFloat(l.price||0)),0);}
 function fmtGBP(n){return"£"+parseFloat(n||0).toLocaleString("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function newLine(){return{id:"l"+Date.now()+Math.random().toString(36).slice(2),desc:"",qty:"1",price:"",delivered:false,deliveredDate:"",deliveredNote:""};}
-function newJob(){return{id:"",job_ref:"",customer_id:"",customer_name:"",contact_id:"",contact_name:"",description:"",po_number:"",status:"In Production",priority:"Normal",quote_ref:"",quote_status:"N/A",lines:[newLine()],stages:[],stages_complete:{},drawing_number:"",drawing_attached:false,date_received:todayStr(),due_date:"",invoice_ref:"",notes:""};}
+function newJob(){return{id:"",job_ref:"",customer_id:"",customer_name:"",contact_id:"",contact_name:"",description:"",po_number:"",status:"In Production",priority:"Normal",quote_ref:"",quote_status:"N/A",quote_date:"",lines:[newLine()],stages:[],stages_complete:{},drawing_number:"",drawing_attached:false,date_received:todayStr(),due_date:"",invoice_ref:"",notes:""};}
 function newCust(){return{id:"",name:"",contacts:[{id:"ct"+Date.now(),name:"",email:"",phone:""}],notes:""};}
 
 async function sendEmail(to,subject,html){
@@ -100,12 +100,14 @@ export default function App(){
   const[priceSearch,setPriceSearch]=useState("");
   const[toast,setToast]=useState(null);
   const[printJob,setPrintJob]=useState(null);
+  const[printQuote,setPrintQuote]=useState(null);
   const[deliveryJob,setDeliveryJob]=useState(null);
   const[mondayPrint,setMondayPrint]=useState(null);
   const[stageInput,setStageInput]=useState("");
   const[confirmDel,setConfirmDel]=useState(null);
   const[laserPrompt,setLaserPrompt]=useState(null);
   const[custHistory,setCustHistory]=useState(null);
+  const[custDetail,setCustDetail]=useState(null);
   const[invoicePrompt,setInvoicePrompt]=useState(null);
   const[partDelivery,setPartDelivery]=useState(null);
 
@@ -123,6 +125,33 @@ export default function App(){
   async function loadCustomers(){const{data}=await supabase.from("customers").select("*").order("name");if(data)setCustomers(data);}
   useMondayReport(jobs);
 
+  // Quote expiry email — day 6 after quote raised
+  useEffect(()=>{
+    const checkQuoteExpiry = async () => {
+      const today = todayStr();
+      const lastCheck = localStorage.getItem("rsm_quote_expiry_check");
+      if(lastCheck === today) return;
+      const quotes = jobs.filter(j => j.status === "Quote" && j.quote_status === "Pending" && j.date_received);
+      for(const q of quotes){
+        const raised = new Date(q.date_received);
+        const day6 = new Date(raised); day6.setDate(raised.getDate()+6);
+        const expiry = new Date(raised); expiry.setDate(raised.getDate()+7);
+        const day6str = day6.toISOString().split("T")[0];
+        if(day6str === today){
+          const cust = customers.find(c=>c.id===q.customer_id);
+          const contact = (cust?.contacts||[]).find(ct=>ct.id===q.contact_id) || (cust?.contacts||[])[0];
+          if(contact?.email){
+            const expiryFmt = fmt(expiry.toISOString().split("T")[0]);
+            const html = `<div style="font-family:Arial,sans-serif;max-width:600px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2></div><div style="padding:24px"><p style="font-size:14px;color:#333">Dear ${contact.name},</p><p style="font-size:14px;color:#333">We wanted to follow up on our quote <strong>${q.job_ref}</strong>${q.po_number?" (your ref: "+q.po_number+")":""} sent on ${fmt(q.date_received)}.</p><p style="font-size:14px;color:#333">This quote is due to expire tomorrow on <strong>${expiryFmt}</strong>. If you would like to proceed or have any questions, please don't hesitate to get in touch.</p><p style="font-size:14px;color:#333">We look forward to hearing from you.</p><p style="font-size:14px;color:#333">Kind regards,<br/><strong>${COMPANY}</strong><br/>${COMPANY_TEL}<br/>${COMPANY_EMAIL}</p></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR}</p></div></div>`;
+            await sendEmail(contact.email, `Quote ${q.job_ref} expiring tomorrow — ${COMPANY}`, html);
+          }
+        }
+      }
+      localStorage.setItem("rsm_quote_expiry_check", today);
+    };
+    if(jobs.length > 0 && customers.length > 0) checkQuoteExpiry();
+  },[jobs, customers]);
+
   function toast_(msg,type="ok"){setToast({msg,type});setTimeout(()=>setToast(null),4000);}
 
   async function getNextRef(){
@@ -136,7 +165,7 @@ export default function App(){
     const isNew=!j.id;
     let ref=j.job_ref;
     if(isNew)ref=await getNextRef();
-    const payload={job_ref:ref,customer_id:j.customer_id||null,customer_name:j.customer_name,contact_id:j.contact_id,contact_name:j.contact_name,description:j.description,po_number:j.po_number,status:j.status,priority:j.priority,quote_ref:j.quote_ref,quote_status:j.quote_status,lines:j.lines||[],stages:j.stages||[],stages_complete:j.stages_complete||{},drawing_number:j.drawing_number,drawing_attached:j.drawing_attached||false,date_received:j.date_received||todayStr(),due_date:j.due_date||null,invoice_ref:j.invoice_ref,notes:j.notes};
+    const payload={job_ref:ref,customer_id:j.customer_id||null,customer_name:j.customer_name,contact_id:j.contact_id,contact_name:j.contact_name,description:j.description,po_number:j.po_number,status:j.status,priority:j.priority,quote_ref:j.quote_ref,quote_status:j.quote_status,quote_date:j.quote_date||null,lines:j.lines||[],stages:j.stages||[],stages_complete:j.stages_complete||{},drawing_number:j.drawing_number,drawing_attached:j.drawing_attached||false,date_received:j.date_received||todayStr(),due_date:j.due_date||null,invoice_ref:j.invoice_ref,notes:j.notes};
     if(isNew){
       const{error}=await supabase.from("jobs").insert([payload]);
       if(error){toast_("Error: "+error.message,"warn");return;}
@@ -269,6 +298,7 @@ export default function App(){
     return out;
   },[priceSearch,jobs]);
 
+  if(printQuote)return<QuoteDoc job={printQuote} onClose={()=>setPrintQuote(null)}/>;
   if(printJob)return<PrintSheet job={printJob} onClose={()=>setPrintJob(null)}/>;
   if(deliveryJob)return<DeliveryNote job={deliveryJob} onClose={()=>setDeliveryJob(null)}/>;
   if(mondayPrint)return<MondayReport jobs={mondayPrint} onClose={()=>setMondayPrint(null)}/>;
@@ -419,11 +449,11 @@ export default function App(){
                   const active=cj.filter(j=>j.status!=="Invoiced").length;
                   const uninv=cj.filter(j=>j.status==="Ready to Despatch").length;
                   const total=cj.reduce((a,j)=>a+lineTotal(j.lines),0);
-                  return<div key={c.id} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:16,display:"flex",gap:14,alignItems:"flex-start"}}>
+                  return<div key={c.id} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:16,display:"flex",gap:14,alignItems:"flex-start",cursor:"pointer"}} onDoubleClick={()=>setCustDetail(c)}>
                     <div style={{width:44,height:44,borderRadius:"50%",background:C.navyLight,color:C.white,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,flexShrink:0}}>{c.name.split(" ").slice(0,2).map(w=>w[0]).join("")}</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:700,fontSize:15,color:C.navy,marginBottom:6}}>{c.name}</div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:8}}>{(c.contacts||[]).map(ct=><div key={ct.id} style={{fontSize:12,color:C.textMid}}>👤 {ct.name}{ct.phone?` · ${ct.phone}`:""}{ct.email?` · ${ct.email}`:""}</div>)}</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:8}}>{(c.contacts||[]).map(ct=><div key={ct.id} style={{fontSize:12,color:C.textMid}}>👤 {ct.name}{ct.phone?` · ${ct.phone}`:""}{ct.email?<span> · <a onDoubleClick={e=>{e.stopPropagation();window.location.href=`mailto:${ct.email}`;}} style={{color:C.accent,cursor:"pointer",textDecoration:"underline"}} title="Double-click to email">{ct.email}</a></span>:""}</div>)}</div>
                       {c.notes&&<div style={{fontSize:12,color:C.textLight,fontStyle:"italic",marginBottom:8}}>{c.notes}</div>}
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                         <Tag>{cj.length} total jobs</Tag>
@@ -431,10 +461,11 @@ export default function App(){
                         {uninv>0&&<Tag color={C.danger}>{uninv} awaiting invoice</Tag>}
                         <Tag color={C.gold}>Lifetime: {fmtGBP(total)}</Tag>
                       </div>
+                      <div style={{fontSize:11,color:C.textLight,marginTop:6}}>Double-click to view details</div>
                     </div>
                     <div style={{display:"flex",gap:8,flexShrink:0}}>
-                      <button style={S.iconBtn} onClick={()=>setCustHistory(c)}>📋 History</button>
-                      <button style={S.iconBtn} onClick={()=>setEditCust(c)}>✎ Edit</button>
+                      <button style={S.iconBtn} onClick={e=>{e.stopPropagation();setCustHistory(c);}}>📋 History</button>
+                      <button style={S.iconBtn} onClick={e=>{e.stopPropagation();setEditCust(c);}}>✎ Edit</button>
                     </div>
                   </div>;
                 })}
@@ -469,7 +500,28 @@ export default function App(){
       </main>
 
       {/* CUSTOMER HISTORY */}
-      {custHistory&&<Overlay onClose={()=>setCustHistory(null)}>
+      {custDetail&&<Overlay onClose={()=>setCustDetail(null)}>
+        <div style={{minWidth:300,maxWidth:480}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+            <div style={{width:52,height:52,borderRadius:"50%",background:C.navyLight,color:C.white,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:18,flexShrink:0}}>{custDetail.name.split(" ").slice(0,2).map(w=>w[0]).join("")}</div>
+            <div><div style={{fontSize:18,fontWeight:700,color:C.navy}}>{custDetail.name}</div>{custDetail.notes&&<div style={{fontSize:12,color:C.textLight,fontStyle:"italic",marginTop:2}}>{custDetail.notes}</div>}</div>
+          </div>
+          <div style={{fontWeight:700,fontSize:12,color:C.textLight,letterSpacing:0.5,textTransform:"uppercase",marginBottom:10}}>Contacts</div>
+          {(custDetail.contacts||[]).map(ct=>(
+            <div key={ct.id} style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:10}}>
+              <div style={{fontWeight:700,fontSize:14,color:C.navy,marginBottom:8}}>👤 {ct.name}</div>
+              {ct.phone&&<div style={{fontSize:13,color:C.textMid,marginBottom:6}}>📞 <a href={"tel:"+ct.phone} style={{color:C.accent,textDecoration:"none"}}>{ct.phone}</a></div>}
+              {ct.email&&<div style={{fontSize:13,color:C.textMid,marginBottom:4}}>✉ <a href={"mailto:"+ct.email} style={{color:C.accent,textDecoration:"underline",cursor:"pointer"}} onDoubleClick={()=>window.location.href="mailto:"+ct.email}>{ct.email}</a> <span style={{fontSize:11,color:C.textLight}}>(double-click to email)</span></div>}
+            </div>
+          ))}
+          <div style={{display:"flex",gap:10,marginTop:16}}>
+            <Btn onClick={()=>{setCustHistory(custDetail);setCustDetail(null);}}>📋 View History</Btn>
+            <Btn onClick={()=>{setEditCust(custDetail);setCustDetail(null);}}>✎ Edit</Btn>
+          </div>
+        </div>
+      </Overlay>}
+
+            {custHistory&&<Overlay onClose={()=>setCustHistory(null)}>
         <div style={{minWidth:300,maxWidth:700}}>
           <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>{custHistory.name}</div>
           <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>Order & pricing history</div>
@@ -502,6 +554,7 @@ export default function App(){
           onDelete={()=>{setConfirmDel(jobModal);setJobModal(null);}}
           onToggleStage={toggleStage} onAddStage={addStage} onRemoveStage={removeStage}
           onPrint={()=>{setPrintJob(jobModal);setJobModal(null);}}
+          onPrintQuote={()=>{setPrintQuote(jobModal);setJobModal(null);}}
           onDelivery={()=>{setDeliveryJob(jobModal);setJobModal(null);}}
           onPartDelivery={()=>{setPartDelivery(jobModal);setJobModal(null);}}
           stageInput={stageInput} setStageInput={setStageInput}
@@ -610,7 +663,7 @@ function JobTable({jobs,onOpen}){
 }
 
 // ── JOB DETAIL ────────────────────────────────────────────────────────────────
-function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onDelivery,onPartDelivery,stageInput,setStageInput,allJobs}){
+function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDelivery,onPartDelivery,stageInput,setStageInput,allJobs}){
   const allS=job.stages||[];
   const done=allS.filter(s=>job.stages_complete?.[s]).length;
   const next=STATUS_FLOW[STATUS_FLOW.indexOf(job.status)+1];
@@ -684,6 +737,7 @@ function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRem
         {pending.length>0&&job.status!=="Quote"&&<Btn onClick={onPartDelivery}>📦 Part Despatch</Btn>}
         <Btn onClick={onEdit}>Edit</Btn>
         <Btn onClick={onPrint}>Print Job Sheet</Btn>
+        {job.status==="Quote"&&<Btn onClick={onPrintQuote}>Print Quote</Btn>}
         <Btn onClick={onDelivery}>Delivery Note</Btn>
         <Btn danger onClick={onDelete}>Delete</Btn>
       </div>
@@ -744,6 +798,7 @@ function JobForm({job,customers,onSave,onCancel,allJobs}){
         <FF label="Due Date"><input type="date" style={S.inp} value={f.due_date} onChange={e=>s("due_date",e.target.value)}/></FF>
         <FF label="Quote Reference"><input style={S.inp} value={f.quote_ref} onChange={e=>s("quote_ref",e.target.value)}/></FF>
         <FF label="Quote Status"><select style={S.inp} value={f.quote_status} onChange={e=>s("quote_status",e.target.value)}>{QUOTE_STATUSES.map(x=><option key={x}>{x}</option>)}</select></FF>
+        <FF label="Quote Date"><input type="date" style={S.inp} value={f.quote_date||""} onChange={e=>s("quote_date",e.target.value)}/></FF>
         <FF label="Drawing Number"><input style={S.inp} value={f.drawing_number} onChange={e=>s("drawing_number",e.target.value)} placeholder="e.g. DWG-001"/></FF>
         <FF label="Drawing Attached?">
           <select style={S.inp} value={f.drawing_attached?"yes":"no"} onChange={e=>s("drawing_attached",e.target.value==="yes")}>
@@ -852,6 +907,86 @@ function CustForm({cust,onSave,onCancel}){
   );
 }
 
+// ── QUOTE DOCUMENT ───────────────────────────────────────────────────────────
+function QuoteDoc({job,onClose}){
+  useEffect(()=>{const t=setTimeout(()=>window.print(),500);return()=>clearTimeout(t);},[]);
+  const quoteDate = job.quote_date||job.date_received||todayStr();
+  const expiryDate = (() => {
+    const d = new Date(quoteDate); d.setDate(d.getDate()+7);
+    return d.toISOString().split("T")[0];
+  })();
+  const total = lineTotal(job.lines);
+  return(
+    <div style={{background:"#fff",minHeight:"100vh",padding:"32px 40px",fontFamily:"Arial,sans-serif",color:"#000",maxWidth:780,margin:"0 auto"}}>
+      <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,marginBottom:24}} className="no-print">← Back</button>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:32,paddingBottom:20,borderBottom:"3px solid #c9a84c"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
+          <div style={{fontSize:11,color:"#666",marginTop:3}}>{COMPANY_ADDR}</div>
+          <div style={{fontSize:11,color:"#666"}}>{COMPANY_TEL} · {COMPANY_EMAIL}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color:"#888",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Quotation</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#0f2a4a"}}>{job.job_ref}</div>
+          <div style={{fontSize:12,color:"#666",marginTop:4}}>Date: {fmt(quoteDate)}</div>
+          {job.po_number&&<div style={{fontSize:12,color:"#666"}}>Your Ref: {job.po_number}</div>}
+        </div>
+      </div>
+      {/* Address to */}
+      <div style={{marginBottom:28}}>
+        <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Quotation For</div>
+        <div style={{fontSize:16,fontWeight:700,color:"#0f2a4a"}}>{job.customer_name}</div>
+        {job.contact_name&&<div style={{fontSize:13,color:"#444",marginTop:2}}>Attn: {job.contact_name}</div>}
+      </div>
+      {/* Description */}
+      {job.description&&<div style={{marginBottom:24}}>
+        <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Re</div>
+        <div style={{fontSize:13,color:"#333"}}>{job.description}</div>
+      </div>}
+      {/* Line items */}
+      <table style={{width:"100%",borderCollapse:"collapse",marginBottom:24,fontSize:12}}>
+        <thead>
+          <tr style={{background:"#0f2a4a",color:"#fff"}}>
+            <th style={{padding:"9px 12px",textAlign:"left"}}>Description</th>
+            <th style={{padding:"9px 12px",textAlign:"center",width:60}}>Qty</th>
+            <th style={{padding:"9px 12px",textAlign:"right",width:90}}>Unit Price</th>
+            <th style={{padding:"9px 12px",textAlign:"right",width:100}}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(job.lines||[]).map((l,i)=>(
+            <tr key={l.id} style={{borderBottom:"1px solid #eee",background:i%2===0?"#fafafa":"#fff"}}>
+              <td style={{padding:"9px 12px"}}>{l.desc}</td>
+              <td style={{padding:"9px 12px",textAlign:"center"}}>{l.qty}</td>
+              <td style={{padding:"9px 12px",textAlign:"right"}}>{fmtGBP(l.price)}</td>
+              <td style={{padding:"9px 12px",textAlign:"right",fontWeight:600}}>{fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))}</td>
+            </tr>
+          ))}
+          <tr style={{background:"#0f2a4a",color:"#fff"}}>
+            <td colSpan="3" style={{padding:"10px 12px",textAlign:"right",fontWeight:700,fontSize:13}}>TOTAL (exc. VAT)</td>
+            <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,fontSize:16}}>{fmtGBP(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {/* Terms */}
+      {job.notes&&<div style={{marginBottom:20,fontSize:12,color:"#555"}}>
+        <div style={{fontWeight:700,marginBottom:4}}>Notes</div>
+        <div>{job.notes}</div>
+      </div>}
+      {/* Expiry */}
+      <div style={{background:"#fef3e2",border:"1px solid #f5c060",borderRadius:6,padding:"12px 16px",marginBottom:24,fontSize:12,color:"#7a4500"}}>
+        <strong>This quotation is only valid until {fmt(expiryDate)}.</strong> Please contact us before this date to confirm your order. Prices may be subject to change after expiry.
+      </div>
+      <div style={{fontSize:11,color:"#888",marginBottom:8}}>All prices exclude VAT. Payment terms: 30 days from invoice.</div>
+      <div style={{marginTop:32,fontSize:10,color:"#bbb",borderTop:"1px solid #eee",paddingTop:12,display:"flex",justifyContent:"space-between"}}>
+        <span>{COMPANY} · Registered in England & Wales</span>
+        <span>Quotation {job.job_ref} · {fmt(quoteDate)} · {VERSION}</span>
+      </div>
+    </div>
+  );
+}
+
 // ── MONDAY REPORT ─────────────────────────────────────────────────────────────
 function MondayReport({jobs,onClose}){
   useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
@@ -881,33 +1016,88 @@ function MondayReport({jobs,onClose}){
 
 // ── PRINT JOB SHEET ───────────────────────────────────────────────────────────
 function PrintSheet({job,onClose}){
-  useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
+  const[drawingUrls,setDrawingUrls]=useState([]);
+  useEffect(()=>{
+    async function loadDrawings(){
+      const{data}=await supabase.from("job_files").select("*").eq("job_id",job.id).eq("category","Drawing");
+      if(data&&data.length>0){
+        const urls=[];
+        for(const f of data){
+          const{data:sd}=await supabase.storage.from("job-files").createSignedUrl(f.file_path,3600);
+          if(sd?.signedUrl)urls.push({url:sd.signedUrl,name:f.file_name});
+        }
+        setDrawingUrls(urls);
+      }
+    }
+    if(job.id)loadDrawings();
+    const t=setTimeout(()=>window.print(),600);
+    return()=>clearTimeout(t);
+  },[]);
+
+  async function openDrawings(){
+    for(const d of drawingUrls){
+      const w=window.open(d.url,"_blank");
+      await new Promise(r=>setTimeout(r,800));
+    }
+  }
+
   return(
-    <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
-      <button onClick={onClose} style={{marginBottom:20,background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}} className="no-print">← Back</button>
-      <div style={{borderBottom:"3px solid #0f2a4a",paddingBottom:16,marginBottom:20,display:"flex",justifyContent:"space-between"}}>
-        <div>
-          <div style={{fontSize:20,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
-          <div style={{fontSize:11,color:"#666",marginTop:2}}>{COMPANY_ADDR}</div>
-          <div style={{fontSize:11,color:"#666"}}>{COMPANY_TEL} · {COMPANY_EMAIL}</div>
-          <div style={{fontSize:11,color:"#666",marginTop:2}}>Job Sheet</div>
-        </div>
-        <div style={{textAlign:"right"}}><div style={{fontSize:22,fontWeight:700}}>{job.job_ref}</div><div style={{fontSize:11,color:"#666"}}>Printed {fmt(todayStr())}</div></div>
+    <div style={{background:"#fff",minHeight:"100vh",padding:"24px 32px",fontFamily:"Arial,sans-serif",color:"#000",maxWidth:760,margin:"0 auto"}}>
+      <div className="no-print" style={{display:"flex",gap:10,marginBottom:20,alignItems:"center"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}}>← Back</button>
+        {drawingUrls.length>0&&<button onClick={openDrawings} style={{background:"#c9a84c",color:"#0f2a4a",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontWeight:700}}>📐 Open {drawingUrls.length} Drawing{drawingUrls.length>1?"s":""} to Print</button>}
       </div>
+      {/* Header */}
+      <div style={{borderBottom:"3px solid #0f2a4a",paddingBottom:16,marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
+          <div style={{fontSize:10,color:"#666",marginTop:2}}>{COMPANY_ADDR}</div>
+          <div style={{fontSize:10,color:"#666"}}>{COMPANY_TEL}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:10,color:"#888",letterSpacing:1,textTransform:"uppercase"}}>Job Sheet</div>
+          <div style={{fontSize:24,fontWeight:800,color:"#0f2a4a"}}>{job.job_ref}</div>
+          {job.po_number&&<div style={{fontSize:11,color:"#666"}}>Customer PO: {job.po_number}</div>}
+        </div>
+      </div>
+      {/* Client name prominent */}
+      <div style={{background:"#f4f6f9",border:"1px solid #d0d8e4",borderLeft:"4px solid #0f2a4a",borderRadius:6,padding:"12px 16px",marginBottom:20}}>
+        <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Customer</div>
+        <div style={{fontSize:20,fontWeight:700,color:"#0f2a4a"}}>{job.customer_name}</div>
+        {job.contact_name&&<div style={{fontSize:13,color:"#555",marginTop:2}}>Contact: {job.contact_name}</div>}
+      </div>
+      {/* Job details */}
       <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20,fontSize:12}}>
-        <tbody>{[["Customer",job.customer_name],["Contact",job.contact_name],["PO Number",job.po_number],["Due Date",fmt(job.due_date)],["Drawing No",job.drawing_number],["Drawing Attached",job.drawing_attached?"Yes":"No"],["Status",job.status],["Notes",job.notes]].filter(([,v])=>v).map(([l,v])=><tr key={l}><td style={{padding:"6px 10px",border:"1px solid #ddd",background:"#f7f7f7",fontWeight:600,width:130}}>{l}</td><td style={{padding:"6px 10px",border:"1px solid #ddd"}}>{v}</td></tr>)}</tbody>
-      </table>
-      <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"#0f2a4a"}}>Order Lines</div>
-      <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20,fontSize:12}}>
-        <thead><tr style={{background:"#0f2a4a",color:"#fff"}}><th style={{padding:"6px 10px",textAlign:"left"}}>Description</th><th style={{padding:"6px 10px",textAlign:"center"}}>Qty</th><th style={{padding:"6px 10px",textAlign:"right"}}>Unit Price</th><th style={{padding:"6px 10px",textAlign:"right"}}>Total</th></tr></thead>
         <tbody>
-          {(job.lines||[]).map(l=><tr key={l.id} style={{borderBottom:"1px solid #eee",...(l.delivered?{opacity:0.5}:{})}}><td style={{padding:"6px 10px"}}>{l.desc}{l.delivered?` ✓ Delivered ${fmt(l.deliveredDate)}`:""}</td><td style={{padding:"6px 10px",textAlign:"center"}}>{l.qty}</td><td style={{padding:"6px 10px",textAlign:"right"}}>{fmtGBP(l.price)}</td><td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))}</td></tr>)}
-          <tr><td colSpan="3" style={{padding:"8px 10px",textAlign:"right",fontWeight:700}}>TOTAL</td><td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,fontSize:14}}>{fmtGBP(lineTotal(job.lines))}</td></tr>
+          {[["Our Ref",job.job_ref],["Customer PO",job.po_number],["Due Date",fmt(job.due_date)],["Drawing No",job.drawing_number],["Drawing Attached",job.drawing_attached?"Yes":"No"],["Status",job.status],["Notes",job.notes]].filter(([,v])=>v).map(([l,v])=>
+            <tr key={l}><td style={{padding:"6px 10px",border:"1px solid #ddd",background:"#f7f7f7",fontWeight:600,width:130}}>{l}</td><td style={{padding:"6px 10px",border:"1px solid #ddd"}}>{v}</td></tr>
+          )}
         </tbody>
       </table>
+      {/* Items - NO PRICING */}
+      <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"#0f2a4a"}}>Items to Manufacture</div>
+      <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20,fontSize:12}}>
+        <thead><tr style={{background:"#0f2a4a",color:"#fff"}}><th style={{padding:"7px 10px",textAlign:"left"}}>Description</th><th style={{padding:"7px 10px",textAlign:"center",width:60}}>Qty</th><th style={{padding:"7px 10px",textAlign:"center",width:80}}>Complete</th></tr></thead>
+        <tbody>{(job.lines||[]).map(l=><tr key={l.id} style={{borderBottom:"1px solid #eee",...(l.delivered?{background:"#f8fff8"}:{})}}>
+          <td style={{padding:"8px 10px"}}>{l.desc}{l.delivered?<span style={{color:"#1a7a4a",fontSize:11}}> ✓ Delivered {fmt(l.deliveredDate)}</span>:""}</td>
+          <td style={{padding:"8px 10px",textAlign:"center",fontWeight:600}}>{l.qty}</td>
+          <td style={{padding:"8px 10px",textAlign:"center"}}>☐</td>
+        </tr>)}</tbody>
+      </table>
+      {/* Production stages */}
       <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"#0f2a4a"}}>Production Stages</div>
-      {(job.stages||[]).map(s=><div key={s} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:"1px solid #eee"}}><div style={{width:20,height:20,border:"2px solid #0f2a4a",borderRadius:3,background:job.stages_complete?.[s]?"#0f2a4a":"#fff",flexShrink:0}}/><span style={{fontSize:13}}>{s}</span><span style={{marginLeft:"auto",fontSize:11,color:"#999"}}>By: ________________ Date: ___________</span></div>)}
-      <div style={{marginTop:36,fontSize:11,color:"#999",borderTop:"1px solid #ddd",paddingTop:10}}>{COMPANY} · {COMPANY_ADDR} · Job Sheet {job.job_ref} · {VERSION}</div>
+      {(job.stages||[]).length===0&&<div style={{color:"#999",fontSize:12,marginBottom:16}}>No stages defined.</div>}
+      {(job.stages||[]).map(s=><div key={s} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0",borderBottom:"1px solid #eee"}}>
+        <div style={{width:22,height:22,border:"2px solid #0f2a4a",borderRadius:4,background:job.stages_complete?.[s]?"#0f2a4a":"#fff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {job.stages_complete?.[s]&&<span style={{color:"#fff",fontSize:14}}>✓</span>}
+        </div>
+        <span style={{fontSize:13,flex:1}}>{s}</span>
+        <span style={{fontSize:11,color:"#999"}}>By: ________________ Date: ___________</span>
+      </div>)}
+      <div style={{marginTop:36,fontSize:10,color:"#bbb",borderTop:"1px solid #ddd",paddingTop:10,display:"flex",justifyContent:"space-between"}}>
+        <span>{COMPANY} · {COMPANY_ADDR}</span>
+        <span>Job Sheet {job.job_ref} · {VERSION}</span>
+      </div>
     </div>
   );
 }
@@ -928,6 +1118,7 @@ function DeliveryNote({job,onClose}){
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:11,color:"#888",letterSpacing:1,textTransform:"uppercase"}}>Delivery Note</div>
           <div style={{fontSize:22,fontWeight:700,color:"#0f2a4a"}}>{job.job_ref}</div>
+          {job.po_number&&<div style={{fontSize:12,color:"#666"}}>Customer PO: {job.po_number}</div>}
           <div style={{fontSize:11,color:"#666"}}>Date: {fmt(todayStr())}</div>
         </div>
       </div>
@@ -939,7 +1130,7 @@ function DeliveryNote({job,onClose}){
         </div>
         <div>
           <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
-            <tbody>{[["Job Ref",job.job_ref],["PO Number",job.po_number||"—"],["Drawing No",job.drawing_number||"—"],["Drawing Attached",job.drawing_attached?"Yes":"No"]].map(([l,v])=><tr key={l}><td style={{padding:"3px 8px",background:"#f5f5f5",fontWeight:600,width:110}}>{l}</td><td style={{padding:"3px 8px",borderBottom:"1px solid #eee"}}>{v}</td></tr>)}</tbody>
+            <tbody>{[["Our Ref",job.job_ref],["Customer PO",job.po_number||"—"],["Drawing No",job.drawing_number||"—"],["Drawing Attached",job.drawing_attached?"Yes":"No"]].map(([l,v])=><tr key={l}><td style={{padding:"3px 8px",background:"#f5f5f5",fontWeight:600,width:110}}>{l}</td><td style={{padding:"3px 8px",borderBottom:"1px solid #eee"}}>{v}</td></tr>)}</tbody>
           </table>
         </div>
       </div>
