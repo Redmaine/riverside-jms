@@ -179,6 +179,13 @@ export default function App(){
     setEditJob(null);
   }
 
+  async function addToPrintQueue(job){
+    try{
+      await supabase.from("print_queue").insert([{job_id:job.id,job_ref:job.job_ref,printed:false}]);
+      toast_("Drawing sent to office printer");
+    }catch(e){console.warn("Print queue error:",e);}
+  }
+
   async function deleteJob(id){
     await supabase.from("jobs").delete().eq("id",id);
     await loadJobs();
@@ -553,7 +560,7 @@ export default function App(){
           onAdvance={()=>advanceJob(jobModal)}
           onDelete={()=>{setConfirmDel(jobModal);setJobModal(null);}}
           onToggleStage={toggleStage} onAddStage={addStage} onRemoveStage={removeStage}
-          onPrint={()=>{setPrintJob(jobModal);setJobModal(null);}}
+          onPrint={()=>{setPrintJob(jobModal);addToPrintQueue(jobModal);setJobModal(null);}}
           onPrintQuote={()=>{setPrintQuote(jobModal);setJobModal(null);}}
           onDelivery={()=>{setDeliveryJob(jobModal);setJobModal(null);}}
           onPartDelivery={()=>{setPartDelivery(jobModal);setJobModal(null);}}
