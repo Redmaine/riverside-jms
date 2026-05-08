@@ -391,8 +391,8 @@ export default function App(){
                   </div>
                 ))}
                 <div style={{background:C.white,border:`1px solid ${C.border}`,borderTop:`3px solid ${C.gold}`,borderRadius:8,padding:"14px 16px"}}>
-                  <div style={{fontSize:22,fontWeight:800,color:C.gold,lineHeight:1}}>{fmtGBP(pipeline)}</div>
-                  <div style={{fontSize:10,color:C.textLight,marginTop:4,fontWeight:600,letterSpacing:0.3}}>Pipeline</div>
+                  <div style={{fontSize:22,fontWeight:800,color:C.gold,lineHeight:1}}>{fmtGBP(In Production Value)}</div>
+                  <div style={{fontSize:10,color:C.textLight,marginTop:4,fontWeight:600,letterSpacing:0.3}}>In Production Value</div>
                 </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16,marginBottom:24}}>
