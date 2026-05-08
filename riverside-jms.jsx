@@ -285,7 +285,7 @@ export default function App(){
   const overdue=jobs.filter(j=>isOverdue(j));
   const uninvoiced=jobs.filter(j=>j.status==="Ready to Despatch");
   const counts=STATUS_FLOW.reduce((a,s)=>({...a,[s]:jobs.filter(j=>j.status===s).length}),{});
-  const pipeline=jobs.filter(j=>j.status!=="Invoiced").reduce((a,j)=>a+lineTotal(j.lines),0);
+  const pipeline=jobs.filter(j=>j.status!=="In Production").reduce((a,j)=>a+lineTotal(j.lines),0);
 
   const filtered=useMemo(()=>jobs.filter(j=>{
     const ms=filterStatus==="All"||j.status===filterStatus;
