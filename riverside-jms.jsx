@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v7.4";
+const VERSION = "v7.7";
 
 const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
 const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
@@ -455,7 +455,7 @@ export default function App(){
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16,marginBottom:24}}>
                 <ACard title="Overdue Jobs" count={overdue.length} color={C.danger}>{overdue.length===0?<Em>All on schedule ✓</Em>:overdue.map(j=><ARow key={j.id} job={j} onClick={()=>setJobModal(j)}><span style={{color:C.danger,fontSize:12}}>Due {fmt(j.due_date)}</span></ARow>)}</ACard>
-                <ACard title="Ready to Despatch — Awaiting Invoice" count={uninvoiced.length} color={C.accent}>{uninvoiced.length===0?<Em>No outstanding invoices ✓</Em>:uninvoiced.map(j=><ARow key={j.id} job={j} onClick={()=>setJobModal(j)}><span style={{color:C.accent,fontSize:12}}>{fmtGBP(lineTotal(j.lines))}</span></ARow>)}</ACard>
+                <ACard title="Awaiting Invoice" count={uninvoiced.length} color={C.accent}>{uninvoiced.length===0?<Em>No outstanding invoices ✓</Em>:uninvoiced.map(j=><ARow key={j.id} job={j} onClick={()=>setJobModal(j)}><span style={{color:C.accent,fontSize:12}}>{fmtGBP(lineTotal(j.lines))}</span></ARow>)}</ACard>
                 {dueTomorrow.length>0&&<ACard title="Due Tomorrow — Not Ready" count={dueTomorrow.length} color={C.warn}>{dueTomorrow.map(j=><ARow key={j.id} job={j} onClick={()=>setJobModal(j)}><span style={{color:C.warn,fontSize:12}}>{j.status}</span></ARow>)}</ACard>}
               </div>
               <h2 style={S.subH}>Recent Jobs</h2>
@@ -557,7 +557,7 @@ export default function App(){
               {dueTomorrow.length>0&&<><ACard title="Due Tomorrow — Not Yet Ready" count={dueTomorrow.length} color={C.warn}>{dueTomorrow.map(j=><ALarge key={j.id} job={j} onClick={()=>setJobModal(j)}/>)}</ACard><div style={{height:16}}/></>}
               <ACard title="Overdue Jobs" count={overdue.length} color={C.danger}>{overdue.length===0?<Em>No overdue jobs ✓</Em>:overdue.map(j=><ALarge key={j.id} job={j} onClick={()=>setJobModal(j)}/>)}</ACard>
               <div style={{height:16}}/>
-              <ACard title="Ready to Despatch — Awaiting Invoice" count={uninvoiced.length} color={C.accent}>{uninvoiced.length===0?<Em>All invoiced ✓</Em>:uninvoiced.map(j=><ALarge key={j.id} job={j} onClick={()=>setJobModal(j)} extra={fmtGBP(lineTotal(j.lines))}/>)}</ACard>
+              <ACard title="Awaiting Invoice" count={uninvoiced.length} color={C.accent}>{uninvoiced.length===0?<Em>All invoiced ✓</Em>:uninvoiced.map(j=><ALarge key={j.id} job={j} onClick={()=>setJobModal(j)} extra={fmtGBP(lineTotal(j.lines))}/>)}</ACard>
             </>}
 
           </>}
@@ -737,17 +737,28 @@ function JobTable({jobs,onOpen}){
   return(
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",fontSize:13}}>
-        <thead><tr style={{background:C.navy}}>{["Job Ref","Customer","PO Number","Description","Due Date","Status","Priority","Value"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"left",color:C.silver,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+        <thead><tr style={{background:C.navy}}>{["Job Ref","Customer","PO Number","Items to Make","Due Date","Status","Priority","Value"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"left",color:C.silver,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
         <tbody>{jobs.map(j=>(
-          <tr key={j.id} style={{borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",...(isOverdue(j)?{background:"#fff5f5"}:{})}} onClick={()=>onOpen(j)}>
-            <td style={S.td}><Ref>{j.job_ref}</Ref></td>
-            <td style={S.td}>{j.customer_name||"—"}</td>
-            <td style={{...S.td,color:C.textLight,fontSize:12}}>{j.po_number||"—"}</td>
-            <td style={{...S.td,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.description}</td>
-            <td style={{...S.td,color:isOverdue(j)?C.danger:C.textMid}}>{fmt(j.due_date)}</td>
-            <td style={S.td}><SPill s={j.status}/></td>
-            <td style={S.td}><PPill p={j.priority}/></td>
-            <td style={{...S.td,fontWeight:700,color:C.navy}}>{fmtGBP(lineTotal(j.lines))}</td>
+          <tr key={j.id} style={{borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",verticalAlign:"top",...(isOverdue(j)?{background:"#fff5f5"}:{})}} onClick={()=>onOpen(j)}>
+            <td style={{...S.td,whiteSpace:"nowrap"}}><Ref>{j.job_ref}</Ref></td>
+            <td style={{...S.td,whiteSpace:"nowrap"}}>{j.customer_name||"—"}</td>
+            <td style={{...S.td,color:C.textLight,fontSize:12,whiteSpace:"nowrap"}}>{j.po_number||"—"}</td>
+            <td style={{...S.td,minWidth:220}}>
+              {(j.lines||[]).length===0
+                ?<span style={{color:C.textLight}}>{j.description||"—"}</span>
+                :(j.lines||[]).map((l,i)=>(
+                  <div key={l.id||i} style={{display:"flex",alignItems:"baseline",gap:6,padding:"1px 0",...(l.delivered?{opacity:0.5,textDecoration:"line-through"}:{})}}>
+                    <span style={{color:l.delivered?C.success:C.textLight,fontSize:10,flexShrink:0}}>{l.delivered?"✓":"•"}</span>
+                    <span style={{fontSize:12,color:l.delivered?C.textLight:C.text}}>{l.desc||"—"}</span>
+                    <span style={{fontSize:11,color:C.textLight,whiteSpace:"nowrap",flexShrink:0}}>×{l.qty}</span>
+                  </div>
+                ))
+              }
+            </td>
+            <td style={{...S.td,whiteSpace:"nowrap",color:isOverdue(j)?C.danger:C.textMid}}>{fmt(j.due_date)}</td>
+            <td style={{...S.td,whiteSpace:"nowrap"}}><SPill s={j.status}/></td>
+            <td style={{...S.td,whiteSpace:"nowrap"}}><PPill p={j.priority}/></td>
+            <td style={{...S.td,fontWeight:700,color:C.navy,whiteSpace:"nowrap"}}>{fmtGBP(lineTotal(j.lines))}</td>
           </tr>
         ))}</tbody>
       </table>
@@ -787,9 +798,9 @@ function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRem
           <span style={{fontWeight:700,fontSize:13,color:C.navy}}>Order Lines</span>
           <span style={{fontSize:11,color:C.textLight}}>{(job.lines||[]).length} item{(job.lines||[]).length!==1?"s":""}</span>
         </div>
-        {pending.length>0&&<>
-          {delivered.length>0&&<div style={{fontSize:11,color:C.textLight,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Pending</div>}
-          {pending.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"flex-start"}}>
+        {(job.lines||[]).filter(l=>!l.delivered).length>0&&<>
+          {(job.lines||[]).filter(l=>l.delivered).length>0&&<div style={{fontSize:11,color:C.textLight,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Pending</div>}
+          {(job.lines||[]).filter(l=>!l.delivered).map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"flex-start"}}>
             <span style={{width:14,height:14,border:`2px solid ${C.border}`,borderRadius:3,flexShrink:0,display:"inline-block",marginTop:2}}/>
             <span style={{flex:1,wordBreak:"break-word"}}>{l.desc||"—"}</span>
             <span style={{color:C.textLight,whiteSpace:"nowrap",marginLeft:8}}>x{l.qty}</span>
@@ -1403,7 +1414,7 @@ function ACard({title,count,color,children}){return<div style={{background:C.whi
 function ARow({job,onClick,children}){return<div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer"}} onClick={onClick}><Ref>{job.job_ref}</Ref><span style={{fontSize:13,color:C.textMid,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{job.customer_name}</span>{children}</div>;}
 function ALarge({job,onClick,extra}){return<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",flexWrap:"wrap"}} onClick={onClick}><Ref>{job.job_ref}</Ref><span style={{fontSize:13,color:C.text,flex:1,minWidth:100}}>{job.description}</span><span style={{fontSize:12,color:C.textLight}}>{job.customer_name}</span><SPill s={job.status}/><span style={{fontSize:12,color:C.textMid}}>Due {fmt(job.due_date)}</span>{extra&&<span style={{fontSize:13,fontWeight:700,color:C.navy}}>{extra}</span>}</div>;}
 function Btn({children,onClick,primary,ghost,danger,small,disabled}){const base={border:"none",borderRadius:5,fontFamily:"inherit",fontWeight:600,cursor:disabled?"not-allowed":"pointer",padding:small?"5px 12px":"8px 16px",fontSize:small?12:13,letterSpacing:0.2,opacity:disabled?0.5:1};const v=primary?{background:C.navy,color:"#fff"}:danger?{background:C.dangerBg,color:C.danger,border:`1px solid ${C.danger}40`}:ghost?{background:"transparent",color:C.textMid,border:`1px solid ${C.border}`}:{background:C.silverLight,color:C.navy,border:`1px solid ${C.border}`};return<button style={{...base,...v}} onClick={disabled?undefined:onClick}>{children}</button>;}
-function Overlay({children,onClose}){return<div style={{position:"fixed",inset:0,background:"#00000066",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}} onClick={onClose}><div style={{background:C.white,border:`1px solid ${C.border}`,borderTop:`4px solid ${C.navy}`,borderRadius:10,padding:28,maxWidth:700,width:"100%",position:"relative",boxShadow:"0 8px 40px #0003",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}><button style={{position:"absolute",top:12,right:14,background:"none",border:"none",color:C.textLight,fontSize:17,cursor:"pointer"}} onClick={onClose}>✕</button>{children}</div></div>;}
+function Overlay({children,onClose}){return<div style={{position:"fixed",inset:0,background:"#00000066",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:1000,padding:"20px",overflowY:"auto"}} onClick={onClose}><div style={{background:C.white,border:`1px solid ${C.border}`,borderTop:`4px solid ${C.navy}`,borderRadius:10,padding:28,maxWidth:700,width:"100%",position:"relative",boxShadow:"0 8px 40px #0003",marginTop:"auto",marginBottom:"auto"}} onClick={e=>e.stopPropagation()}><button style={{position:"absolute",top:12,right:14,background:"none",border:"none",color:C.textLight,fontSize:17,cursor:"pointer"}} onClick={onClose}>✕</button>{children}</div></div>;}
 function FF({label,children,full}){return<div style={{marginBottom:12,gridColumn:full?"1 / -1":undefined}}><label style={{display:"block",color:C.textLight,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:4}}>{label}</label>{children}</div>;}
 function Logo(){return<svg width="36" height="36" viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="6" fill={C.navyMid}/><path d="M7 22 L18 10 L29 22" stroke={C.silver} strokeWidth="2.5" fill="none" strokeLinejoin="round"/><rect x="14" y="22" width="8" height="7" fill={C.gold} rx="1"/><line x1="18" y1="22" x2="18" y2="29" stroke={C.navyMid} strokeWidth="1.5"/></svg>;}
 
