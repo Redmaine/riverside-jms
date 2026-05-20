@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v7.3";
+const VERSION = "v7.4";
 
 const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
 const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
@@ -832,13 +832,14 @@ function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRem
         {/* Advance button - only for non-despatch statuses */}
         {job.status==="Quote"&&next&&<Btn primary onClick={onAdvance}>→ Move to: In Production</Btn>}
         {job.status==="Ready to Despatch"&&<Btn primary onClick={onAdvance}>→ Mark as Invoiced</Btn>}
-        {/* Despatch buttons - only when in production/part despatched */}
-        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&delivered.length===0&&<Btn primary onClick={()=>onPartDelivery("part")}>📦 Despatch Items</Btn>}
-        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&delivered.length>0&&<><Btn onClick={()=>onPartDelivery("part")}>📦 Part Despatch</Btn><Btn primary onClick={()=>onPartDelivery("final")}>✅ Final Despatch</Btn></>}
+        {/* Despatch buttons - always show both when items pending */}
+        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&<Btn onClick={()=>onPartDelivery("part")}>📦 Part Despatch</Btn>}
+        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&<Btn primary onClick={()=>onPartDelivery("final")}>✅ Final Despatch</Btn>}
         <Btn onClick={onEdit}>Edit</Btn>
         <Btn onClick={onPrint}>Print Job Sheet</Btn>
         {job.status==="Quote"&&<Btn onClick={onPrintQuote}>Print Quote</Btn>}
-        <Btn onClick={onDelivery}>🖨 Delivery Note</Btn>
+        <Btn onClick={onDelivery}>🖨 Print Delivery Note</Btn>
+        <Btn onClick={onEmailDelivery}>✉ Email Delivery Note</Btn>
         <Btn danger onClick={onDelete}>Delete</Btn>
       </div>
       <FileAttachments job={job}/>
