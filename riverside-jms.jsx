@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v7.0";
+const VERSION = "v7.1";
 
 const STATUS_FLOW = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
 const PRESET_STAGES = ["Cutting", "Laser Cutting", "Welding", "Bending / Forming", "Punching", "Rolling", "Grinding", "Powder Coat", "Painting", "Assembly", "QC Check"];
@@ -956,7 +956,10 @@ function QuoteDoc({job,onClose}){
   const total = lineTotal(job.lines);
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:"32px 40px",fontFamily:"Arial,sans-serif",color:"#000",maxWidth:780,margin:"0 auto"}}>
-      <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,marginBottom:24}} className="no-print">← Back</button>
+      <div className="no-print" style={{display:"flex",gap:10,alignItems:"center",marginBottom:20,padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
+      </div>
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:32,paddingBottom:20,borderBottom:"3px solid #c9a84c"}}>
         <div>
@@ -1030,9 +1033,9 @@ function MondayReport({jobs,onClose}){
   useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
-      <div className="no-print" style={{marginBottom:20,display:"flex",gap:10,alignItems:"center"}}>
-        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}}>← Back to Dashboard</button>
-        <span style={{fontSize:12,color:"#888"}}>Click Back to return without printing</span>
+      <div className="no-print" style={{display:"flex",gap:10,alignItems:"center",marginBottom:20,padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
       </div>
       <div style={{borderBottom:"3px solid #c9a84c",paddingBottom:16,marginBottom:20,display:"flex",justifyContent:"space-between"}}>
         <div>
@@ -1084,8 +1087,9 @@ function PrintSheet({job,onClose}){
 
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:"24px 32px",fontFamily:"Arial,sans-serif",color:"#000",maxWidth:760,margin:"0 auto"}}>
-      <div className="no-print" style={{display:"flex",gap:10,marginBottom:20,alignItems:"center"}}>
-        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}}>← Back</button>
+      <div className="no-print" style={{display:"flex",gap:10,marginBottom:20,alignItems:"center",padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
         {drawingUrls.length>0&&<button onClick={openDrawings} style={{background:"#c9a84c",color:"#0f2a4a",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontWeight:700}}>📐 Open {drawingUrls.length} Drawing{drawingUrls.length>1?"s":""} to Print</button>}
       </div>
       {/* Header */}
@@ -1149,9 +1153,9 @@ function DeliveryNote({job,onClose}){
   const linesToShow=(job.lines||[]).filter(l=>!l.delivered||(job._partLines&&job._partLines.includes(l.id)));
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
-      <div className="no-print" style={{marginBottom:20,display:"flex",gap:10,alignItems:"center"}}>
-        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4}}>← Back to Dashboard</button>
-        <span style={{fontSize:12,color:"#888"}}>Click Back to return without printing</span>
+      <div className="no-print" style={{display:"flex",gap:10,alignItems:"center",marginBottom:20,padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
       </div>
       <div style={{borderBottom:"3px solid #c9a84c",paddingBottom:16,marginBottom:24,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
