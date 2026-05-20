@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v7.1";
+const VERSION = "v7.2";
 
 const STATUS_FLOW = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
 const PRESET_STAGES = ["Cutting", "Laser Cutting", "Welding", "Bending / Forming", "Punching", "Rolling", "Grinding", "Powder Coat", "Painting", "Assembly", "QC Check"];
@@ -138,6 +138,7 @@ export default function App(){
   const[custDetail,setCustDetail]=useState(null);
   const[invoicePrompt,setInvoicePrompt]=useState(null);
   const[partDelivery,setPartDelivery]=useState(null);
+  const[emailDelivery,setEmailDelivery]=useState(null);
 
   useEffect(()=>{
     loadAll();
@@ -263,19 +264,19 @@ export default function App(){
     const u={...job,stages,stages_complete:sc};setJobs(p=>p.map(j=>j.id===job.id?u:j));setJobModal(u);
   }
 
-  async function savePartDelivery(job,selectedLineIds,note){
+  async function savePartDelivery(job,selectedLineIds,note,isFinal){
     const now=todayStr();
     const updatedLines=job.lines.map(l=>selectedLineIds.includes(l.id)?{...l,delivered:true,deliveredDate:now,deliveredNote:note}:l);
-    const allDelivered=updatedLines.every(l=>l.delivered);
-    const newStatus=allDelivered?"Ready to Despatch":"Part Despatched";
+    const newStatus=isFinal?"Ready to Despatch":"Part Despatched";
     await supabase.from("jobs").update({lines:updatedLines,status:newStatus}).eq("id",job.id);
     await loadJobs();
     const updated={...job,lines:updatedLines,status:newStatus};
     setPartDelivery(null);
     setJobModal(updated);
     toast_(`Delivery recorded — job now: ${newStatus}`);
-    // Auto print delivery note for selected lines
-    setTimeout(()=>setDeliveryJob({...updated,lines:updatedLines.filter(l=>selectedLineIds.includes(l.id))}),300);
+    // Auto print delivery note - for final despatch include previously despatched items header
+    const linesToPrint=isFinal?updatedLines:updatedLines.filter(l=>selectedLineIds.includes(l.id));
+    setTimeout(()=>setDeliveryJob({...updated,lines:linesToPrint,_isFinal:isFinal,_prevDelivered:job.lines.filter(l=>l.delivered)}),300);
   }
 
   async function saveCust(c){
@@ -381,7 +382,18 @@ export default function App(){
       {/* PART DELIVERY */}
       {partDelivery&&(
         <Overlay onClose={()=>setPartDelivery(null)}>
-          <PartDeliveryForm job={partDelivery} onConfirm={savePartDelivery} onCancel={()=>setPartDelivery(null)}/>
+          <PartDeliveryForm job={partDelivery.job} type={partDelivery.type} onConfirm={savePartDelivery} onCancel={()=>setPartDelivery(null)}/>
+        </Overlay>
+      )}
+
+      {emailDelivery&&(
+        <Overlay onClose={()=>setEmailDelivery(null)}>
+          <EmailDeliveryForm job={emailDelivery} customers={customers} onSend={async(to,job)=>{
+            const html=buildDeliveryNoteHTML(job);
+            await sendEmail(to,`Delivery Note ${job.job_ref} — ${COMPANY}`,html);
+            toast_("Delivery note emailed to "+to);
+            setEmailDelivery(null);
+          }} onCancel={()=>setEmailDelivery(null)}/>
         </Overlay>
       )}
 
@@ -590,9 +602,10 @@ export default function App(){
           onDelete={()=>{setConfirmDel(jobModal);setJobModal(null);}}
           onToggleStage={toggleStage} onAddStage={addStage} onRemoveStage={removeStage}
           onPrint={()=>{setPrintJob(jobModal);addToPrintQueue(jobModal);setJobModal(null);}}
+          onEmailDelivery={()=>{setEmailDelivery(jobModal);setJobModal(null);}}
           onPrintQuote={()=>{setPrintQuote(jobModal);setJobModal(null);}}
           onDelivery={()=>{setDeliveryJob(jobModal);setJobModal(null);}}
-          onPartDelivery={()=>{setPartDelivery(jobModal);setJobModal(null);}}
+          onPartDelivery={(type)=>{setPartDelivery({job:jobModal,type:type||'part'});setJobModal(null);}}
           stageInput={stageInput} setStageInput={setStageInput}
           allJobs={jobs}
         />
@@ -642,15 +655,38 @@ function InvoicePrompt({job,onConfirm,onCancel}){
 }
 
 // ── PART DELIVERY FORM ────────────────────────────────────────────────────────
-function PartDeliveryForm({job,onConfirm,onCancel}){
+function PartDeliveryForm({job,type,onConfirm,onCancel}){
+  const isFinal = type==="final";
   const available=(job.lines||[]).filter(l=>!l.delivered);
+  const delivered=(job.lines||[]).filter(l=>l.delivered);
   const[selected,setSelected]=useState(available.map(l=>l.id));
   const[note,setNote]=useState("");
   function toggle(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
   return(
-    <div style={{maxWidth:540}}>
-      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>Record Part Delivery</div>
-      <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>Select the items being despatched today</div>
+    <div style={{maxWidth:560}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>
+        {isFinal?"✅ Final Despatch":"📦 Part Despatch"}
+      </div>
+      <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>
+        {isFinal?"Confirm final items being despatched — this will complete the order":"Select the items being despatched today"}
+      </div>
+
+      {/* Previously despatched - shown on final */}
+      {isFinal&&delivered.length>0&&(
+        <div style={{background:C.successBg,border:`1px solid #90d0a0`,borderRadius:8,padding:12,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.success,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>Previously Despatched</div>
+          {delivered.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"5px 0",borderBottom:`1px solid #c0e8c8`,fontSize:13}}>
+            <span style={{color:C.success}}>✓</span>
+            <span style={{flex:1,color:C.textMid}}>{l.desc||"—"}</span>
+            <span style={{color:C.textLight,fontSize:12}}>x{l.qty}</span>
+            <span style={{color:C.success,fontSize:12}}>Sent {fmt(l.deliveredDate)}</span>
+          </div>)}
+        </div>
+      )}
+
+      <div style={{fontSize:11,fontWeight:700,color:C.textLight,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>
+        {isFinal?"Final Items":"Select Items to Despatch"}
+      </div>
       {available.length===0&&<Em>All lines already delivered.</Em>}
       {available.map(l=>(
         <div key={l.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:selected.includes(l.id)?C.successBg:C.white,border:`1px solid ${selected.includes(l.id)?"#90d0a0":C.border}`,borderRadius:8,marginBottom:8,cursor:"pointer"}} onClick={()=>toggle(l.id)}>
@@ -666,9 +702,13 @@ function PartDeliveryForm({job,onConfirm,onCancel}){
       <FF label="Delivery Note / Reference">
         <input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="Optional note e.g. driver name, vehicle"/>
       </FF>
-      <div style={{fontSize:12,color:C.textLight,marginBottom:16}}>A delivery note will print automatically for the selected items.</div>
+      <div style={{fontSize:12,color:C.textLight,marginBottom:16}}>
+        {isFinal?"Delivery note will print for final items. Job will move to Ready to Despatch.":"Delivery note will print for selected items. Job stays open for remaining items."}
+      </div>
       <div style={{display:"flex",gap:10}}>
-        <Btn primary onClick={()=>onConfirm(job,selected,note)} disabled={selected.length===0}>Confirm Despatch</Btn>
+        <Btn primary onClick={()=>onConfirm(job,selected,note,isFinal)} disabled={selected.length===0}>
+          {isFinal?"Confirm Final Despatch":"Confirm Part Despatch"}
+        </Btn>
         <Btn ghost onClick={onCancel}>Cancel</Btn>
       </div>
     </div>
@@ -699,7 +739,7 @@ function JobTable({jobs,onOpen}){
 }
 
 // ── JOB DETAIL ────────────────────────────────────────────────────────────────
-function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDelivery,onPartDelivery,stageInput,setStageInput,allJobs}){
+function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDelivery,onPartDelivery,onEmailDelivery,stageInput,setStageInput,allJobs}){
   const allS=job.stages||[];
   const done=allS.filter(s=>job.stages_complete?.[s]).length;
   const next=STATUS_FLOW[STATUS_FLOW.indexOf(job.status)+1];
@@ -724,28 +764,31 @@ function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRem
         ))}
       </div>
 
-      {/* ORDER LINES with delivery status */}
+      {/* ORDER LINES with delivery status - all lines always visible */}
       <div style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
-        <div style={{fontWeight:700,fontSize:13,color:C.navy,marginBottom:10}}>Order Lines</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontWeight:700,fontSize:13,color:C.navy}}>Order Lines</span>
+          <span style={{fontSize:11,color:C.textLight}}>{(job.lines||[]).length} item{(job.lines||[]).length!==1?"s":""}</span>
+        </div>
         {pending.length>0&&<>
-          <div style={{fontSize:11,color:C.textLight,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Pending</div>
-          {pending.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"center"}}>
-            <span style={{width:14,height:14,border:`2px solid ${C.border}`,borderRadius:3,flexShrink:0,display:"inline-block"}}/>
-            <span style={{flex:1}}>{l.desc||"—"}</span>
-            <span style={{color:C.textLight,whiteSpace:"nowrap"}}>x{l.qty}</span>
+          {delivered.length>0&&<div style={{fontSize:11,color:C.textLight,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Pending</div>}
+          {pending.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"flex-start"}}>
+            <span style={{width:14,height:14,border:`2px solid ${C.border}`,borderRadius:3,flexShrink:0,display:"inline-block",marginTop:2}}/>
+            <span style={{flex:1,wordBreak:"break-word"}}>{l.desc||"—"}</span>
+            <span style={{color:C.textLight,whiteSpace:"nowrap",marginLeft:8}}>x{l.qty}</span>
             <span style={{color:C.navy,fontWeight:700,whiteSpace:"nowrap",minWidth:70,textAlign:"right"}}>{fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))}</span>
           </div>)}
         </>}
         {delivered.length>0&&<>
-          <div style={{fontSize:11,color:C.success,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",margin:"10px 0 6px"}}>Delivered</div>
-          {delivered.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"center",opacity:0.7}}>
-            <span style={{color:C.success,fontSize:14,flexShrink:0}}>✓</span>
-            <span style={{flex:1,textDecoration:"line-through",color:C.textMid}}>{l.desc||"—"}</span>
-            <span style={{color:C.textLight,whiteSpace:"nowrap"}}>x{l.qty}</span>
-            <span style={{color:C.success,fontSize:11,whiteSpace:"nowrap"}}>Sent {fmt(l.deliveredDate)}</span>
+          <div style={{fontSize:11,color:C.success,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",margin:"10px 0 6px"}}>Previously Despatched</div>
+          {delivered.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"flex-start",background:"#f8fff8",margin:"0 -14px",padding:"7px 14px"}}>
+            <span style={{color:C.success,fontSize:14,flexShrink:0,marginTop:1}}>✓</span>
+            <span style={{flex:1,color:C.textMid,wordBreak:"break-word"}}>{l.desc||"—"}</span>
+            <span style={{color:C.textLight,whiteSpace:"nowrap",marginLeft:8}}>x{l.qty}</span>
+            <span style={{color:C.success,fontSize:11,whiteSpace:"nowrap",marginLeft:8}}>Sent {fmt(l.deliveredDate)}</span>
           </div>)}
         </>}
-        <div style={{display:"flex",justifyContent:"flex-end",fontWeight:700,fontSize:15,color:C.navy,paddingTop:8}}>Total: {fmtGBP(lineTotal(job.lines))}</div>
+        <div style={{display:"flex",justifyContent:"flex-end",fontWeight:700,fontSize:15,color:C.navy,paddingTop:8,borderTop:`1px solid ${C.border}`,marginTop:4}}>Total: {fmtGBP(lineTotal(job.lines))}</div>
       </div>
 
       {/* STAGES */}
@@ -769,12 +812,15 @@ function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRem
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {next&&<Btn primary onClick={onAdvance}>→ Move to: {next}</Btn>}
-        {pending.length>0&&job.status!=="Quote"&&<Btn onClick={onPartDelivery}>📦 Part Despatch</Btn>}
+        {next&&job.status!=="Quote"&&job.status!=="In Production"&&job.status!=="Part Despatched"&&<Btn primary onClick={onAdvance}>→ Move to: {next}</Btn>}
+        {pending.length>0&&job.status!=="Quote"&&<Btn onClick={()=>onPartDelivery("part")}>📦 Part Despatch</Btn>}
+        {pending.length>0&&job.status!=="Quote"&&delivered.length>0&&<Btn primary onClick={()=>onPartDelivery("final")}>✅ Final Despatch</Btn>}
+        {pending.length>0&&job.status!=="Quote"&&delivered.length===0&&<Btn primary onClick={onAdvance}>→ Move to: {next}</Btn>}
         <Btn onClick={onEdit}>Edit</Btn>
         <Btn onClick={onPrint}>Print Job Sheet</Btn>
         {job.status==="Quote"&&<Btn onClick={onPrintQuote}>Print Quote</Btn>}
-        <Btn onClick={onDelivery}>Delivery Note</Btn>
+        <Btn onClick={onDelivery}>🖨 Delivery Note</Btn>
+        <Btn onClick={onEmailDelivery}>✉ Email Delivery Note</Btn>
         <Btn danger onClick={onDelete}>Delete</Btn>
       </div>
       <FileAttachments job={job}/>
@@ -1149,14 +1195,24 @@ function PrintSheet({job,onClose}){
 
 // ── DELIVERY NOTE ─────────────────────────────────────────────────────────────
 function DeliveryNote({job,onClose}){
-  useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
+  useEffect(()=>{
+    // Add print CSS for 2 copies
+    const style=document.createElement("style");
+    style.id="dn-print-style";
+    style.innerHTML=`@media print{.delivery-copy{page-break-after:always;}.delivery-copy:last-child{page-break-after:auto;}}`;
+    document.head.appendChild(style);
+    const t=setTimeout(()=>window.print(),500);
+    return()=>{clearTimeout(t);const el=document.getElementById("dn-print-style");if(el)el.remove();};
+  },[]);
   const linesToShow=(job.lines||[]).filter(l=>!l.delivered||(job._partLines&&job._partLines.includes(l.id)));
   return(
     <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
       <div className="no-print" style={{display:"flex",gap:10,alignItems:"center",marginBottom:20,padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
         <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
-        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy — 2 copies will print automatically</span>
       </div>
+      {[1,2].map(copy=><div key={copy} className="delivery-copy" style={{marginBottom:copy===1?40:0}}>
+      {copy===2&&<div style={{borderTop:"2px dashed #ccc",paddingTop:24,marginBottom:16,fontSize:11,color:"#999",textAlign:"center"}}>✂ Cut here — Copy {copy} of 2</div>}
       <div style={{borderBottom:"3px solid #c9a84c",paddingBottom:16,marginBottom:24,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
@@ -1191,11 +1247,44 @@ function DeliveryNote({job,onClose}){
         <div><div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:20}}>Received by (Customer)</div><div style={{borderBottom:"1px solid #000",marginBottom:6,height:32}}/><div style={{fontSize:11,color:"#888"}}>Name: ________________________________</div><div style={{fontSize:11,color:"#888",marginTop:6}}>Date: ________________________________</div></div>
         <div><div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:20}}>Despatched by (Riverside)</div><div style={{borderBottom:"1px solid #000",marginBottom:6,height:32}}/><div style={{fontSize:11,color:"#888"}}>Name: ________________________________</div><div style={{fontSize:11,color:"#888",marginTop:6}}>Date: ________________________________</div></div>
       </div>
-      <div style={{marginTop:40,fontSize:10,color:"#bbb",borderTop:"1px solid #eee",paddingTop:10,textAlign:"center"}}>{COMPANY} · {COMPANY_ADDR} · {COMPANY_TEL} · Delivery Note {job.job_ref} · {VERSION}</div>
+      <div style={{marginTop:40,fontSize:10,color:"#bbb",borderTop:"1px solid #eee",paddingTop:10,textAlign:"center"}}>{COMPANY} · {COMPANY_ADDR} · {COMPANY_TEL} · Delivery Note {job.job_ref} · Copy {copy} of 2 · {VERSION}</div>
+      </div>)}
     </div>
   );
 }
 
+
+// ── EMAIL DELIVERY NOTE ──────────────────────────────────────────────────────
+function buildDeliveryNoteHTML(job){
+  const rows=(job.lines||[]).map(l=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">${l.desc||""}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center">${l.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center">${l.delivered?`<span style="color:#1a7a4a">✓ Sent ${fmt(l.deliveredDate)}</span>`:"☐"}</td></tr>`).join("");
+  return`<div style="font-family:Arial,sans-serif;max-width:700px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2><p style="color:#c8d0dc;margin:4px 0 0;font-size:13px">Delivery Note — ${job.job_ref}</p></div><div style="padding:20px 24px"><table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px"><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase;width:120px">Deliver To</td><td style="padding:4px 0;font-weight:700">${job.customer_name}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Contact</td><td style="padding:4px 0">${job.contact_name||"—"}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Our Ref</td><td style="padding:4px 0;font-family:monospace">${job.job_ref}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Customer PO</td><td style="padding:4px 0">${job.po_number||"—"}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Date</td><td style="padding:4px 0">${fmt(todayStr())}</td></tr></table><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0f2a4a"><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Description</th><th style="padding:8px 12px;text-align:center;color:#c8d0dc;font-size:11px;text-transform:uppercase;width:60px">Qty</th><th style="padding:8px 12px;text-align:center;color:#c8d0dc;font-size:11px;text-transform:uppercase;width:80px">Received</th></tr></thead><tbody>${rows}</tbody></table></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR} · ${COMPANY_TEL}</p></div></div>`;
+}
+
+function EmailDeliveryForm({job,customers,onSend,onCancel}){
+  const cust=customers.find(c=>c.id===job.customer_id);
+  const contacts=(cust?.contacts||[]);
+  const defaultEmail=contacts[0]?.email||"";
+  const[to,setTo]=useState(defaultEmail);
+  const[sending,setSending]=useState(false);
+  return(
+    <div style={{maxWidth:440}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>✉ Email Delivery Note</div>
+      <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>Send delivery note for <strong>{job.job_ref}</strong> by email</div>
+      <FF label="Send To">
+        <input style={S.inp} value={to} onChange={e=>setTo(e.target.value)} placeholder="email@example.com"/>
+      </FF>
+      {contacts.length>1&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        <span style={{fontSize:11,color:C.textLight,alignSelf:"center"}}>Quick select:</span>
+        {contacts.map(ct=>ct.email&&<button key={ct.id} style={{background:C.silverLight,border:`1px solid ${C.border}`,borderRadius:20,padding:"2px 10px",fontSize:11,cursor:"pointer",fontFamily:"inherit",color:C.navy}} onClick={()=>setTo(ct.email)}>{ct.name}</button>)}
+      </div>}
+      <div style={{fontSize:12,color:C.textLight,marginBottom:16}}>The delivery note will be sent as a formatted HTML email.</div>
+      <div style={{display:"flex",gap:10}}>
+        <Btn primary onClick={async()=>{setSending(true);await onSend(to,job);setSending(false);}} disabled={!to||sending}>{sending?"Sending…":"Send Email"}</Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
 
 // ── FILE ATTACHMENTS ──────────────────────────────────────────────────────────
 function FileAttachments({job}){
