@@ -18,9 +18,10 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v7.2";
+const VERSION = "v7.3";
 
-const STATUS_FLOW = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
+const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
+const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
 const PRESET_STAGES = ["Cutting", "Laser Cutting", "Welding", "Bending / Forming", "Punching", "Rolling", "Grinding", "Powder Coat", "Painting", "Assembly", "QC Check"];
 const PRIORITIES = ["Normal", "High", "Urgent", "Low"];
 const QUOTE_STATUSES = ["Pending", "Approved", "Rejected", "N/A"];
@@ -139,6 +140,7 @@ export default function App(){
   const[invoicePrompt,setInvoicePrompt]=useState(null);
   const[partDelivery,setPartDelivery]=useState(null);
   const[emailDelivery,setEmailDelivery]=useState(null);
+  const[deliveryOptions,setDeliveryOptions]=useState(null);
 
   useEffect(()=>{
     loadAll();
@@ -272,11 +274,11 @@ export default function App(){
     await loadJobs();
     const updated={...job,lines:updatedLines,status:newStatus};
     setPartDelivery(null);
-    setJobModal(updated);
     toast_(`Delivery recorded — job now: ${newStatus}`);
-    // Auto print delivery note - for final despatch include previously despatched items header
+    // Show delivery options - print or email
     const linesToPrint=isFinal?updatedLines:updatedLines.filter(l=>selectedLineIds.includes(l.id));
-    setTimeout(()=>setDeliveryJob({...updated,lines:linesToPrint,_isFinal:isFinal,_prevDelivered:job.lines.filter(l=>l.delivered)}),300);
+    const deliveryJobData={...updated,lines:linesToPrint,_isFinal:isFinal,_prevDelivered:job.lines.filter(l=>l.delivered)};
+    setDeliveryOptions({job:deliveryJobData,onPrint:()=>{setDeliveryJob(deliveryJobData);setDeliveryOptions(null);},onEmail:()=>{setEmailDelivery(deliveryJobData);setDeliveryOptions(null);}});
   }
 
   async function saveCust(c){
@@ -314,7 +316,7 @@ export default function App(){
   const dueTomorrow=jobs.filter(j=>isDueTomorrow(j));
   const overdue=jobs.filter(j=>isOverdue(j));
   const uninvoiced=jobs.filter(j=>j.status==="Ready to Despatch");
-  const counts=STATUS_FLOW.reduce((a,s)=>({...a,[s]:jobs.filter(j=>j.status===s).length}),{});
+  const counts=ALL_STATUSES.reduce((a,s)=>({...a,[s]:jobs.filter(j=>j.status===s).length}),{});
   const pipeline=jobs.filter(j=>j.status==="In Production").reduce((a,j)=>a+lineTotal(j.lines),0);
 
   const filtered=useMemo(()=>jobs.filter(j=>{
@@ -386,6 +388,21 @@ export default function App(){
         </Overlay>
       )}
 
+      {deliveryOptions&&(
+        <Overlay onClose={()=>{setDeliveryOptions(null);setJobModal(deliveryOptions.job);}}>
+          <div style={{maxWidth:400,textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:12}}>📋</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:8}}>Delivery Note</div>
+            <div style={{fontSize:14,color:C.textMid,marginBottom:24}}>How would you like to send the delivery note for <strong>{deliveryOptions.job.job_ref}</strong>?</div>
+            <div style={{display:"flex",gap:12,justifyContent:"center"}}>
+              <Btn primary onClick={deliveryOptions.onPrint}>🖨 Print (2 copies)</Btn>
+              <Btn onClick={deliveryOptions.onEmail}>✉ Email Instead</Btn>
+            </div>
+            <button style={{background:"none",border:"none",color:C.textLight,fontSize:12,cursor:"pointer",marginTop:16}} onClick={()=>{setDeliveryOptions(null);setJobModal(deliveryOptions.job);}}>Skip — I'll do this later</button>
+          </div>
+        </Overlay>
+      )}
+
       {emailDelivery&&(
         <Overlay onClose={()=>setEmailDelivery(null)}>
           <EmailDeliveryForm job={emailDelivery} customers={customers} onSend={async(to,job)=>{
@@ -453,7 +470,7 @@ export default function App(){
                 <Btn onClick={()=>exportAllCSV(filtered)}>↓ Export CSV</Btn>
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
-                {["All",...STATUS_FLOW].map(s=><button key={s} style={{background:filterStatus===s?C.navy:C.white,color:filterStatus===s?C.white:C.textMid,border:`1px solid ${filterStatus===s?C.navy:C.border}`,borderRadius:20,padding:"4px 14px",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>setFilterStatus(s)}>{s}</button>)}
+                {["All",...ALL_STATUSES].map(s=><button key={s} style={{background:filterStatus===s?C.navy:C.white,color:filterStatus===s?C.white:C.textMid,border:`1px solid ${filterStatus===s?C.navy:C.border}`,borderRadius:20,padding:"4px 14px",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>setFilterStatus(s)}>{s}</button>)}
               </div>
               <JobTable jobs={filtered} onOpen={setJobModal}/>
               {filtered.length===0&&<Em center>No jobs match your search.</Em>}
@@ -812,15 +829,16 @@ function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRem
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {next&&job.status!=="Quote"&&job.status!=="In Production"&&job.status!=="Part Despatched"&&<Btn primary onClick={onAdvance}>→ Move to: {next}</Btn>}
-        {pending.length>0&&job.status!=="Quote"&&<Btn onClick={()=>onPartDelivery("part")}>📦 Part Despatch</Btn>}
-        {pending.length>0&&job.status!=="Quote"&&delivered.length>0&&<Btn primary onClick={()=>onPartDelivery("final")}>✅ Final Despatch</Btn>}
-        {pending.length>0&&job.status!=="Quote"&&delivered.length===0&&<Btn primary onClick={onAdvance}>→ Move to: {next}</Btn>}
+        {/* Advance button - only for non-despatch statuses */}
+        {job.status==="Quote"&&next&&<Btn primary onClick={onAdvance}>→ Move to: In Production</Btn>}
+        {job.status==="Ready to Despatch"&&<Btn primary onClick={onAdvance}>→ Mark as Invoiced</Btn>}
+        {/* Despatch buttons - only when in production/part despatched */}
+        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&delivered.length===0&&<Btn primary onClick={()=>onPartDelivery("part")}>📦 Despatch Items</Btn>}
+        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&delivered.length>0&&<><Btn onClick={()=>onPartDelivery("part")}>📦 Part Despatch</Btn><Btn primary onClick={()=>onPartDelivery("final")}>✅ Final Despatch</Btn></>}
         <Btn onClick={onEdit}>Edit</Btn>
         <Btn onClick={onPrint}>Print Job Sheet</Btn>
         {job.status==="Quote"&&<Btn onClick={onPrintQuote}>Print Quote</Btn>}
         <Btn onClick={onDelivery}>🖨 Delivery Note</Btn>
-        <Btn onClick={onEmailDelivery}>✉ Email Delivery Note</Btn>
         <Btn danger onClick={onDelete}>Delete</Btn>
       </div>
       <FileAttachments job={job}/>
