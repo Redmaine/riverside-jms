@@ -946,12 +946,225 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
   );
 }
 
+function MonthlyHours({ emp, bankHolidays }) {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const [entries, setEntries] = useState({});
+  const [hourlyRate, setHourlyRate] = useState(emp.hourly_rate || "");
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const storageKey = `rsm_hours_${emp.id}_${monthKey}`;
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setEntries(saved ? JSON.parse(saved) : {});
+    } catch { setEntries({}); }
+  }, [storageKey]);
+
+  const prevMonth = () => {
+    if (month === 0) { setMonth(11); setYear(y => y - 1); }
+    else setMonth(m => m - 1);
+  };
+  const nextMonth = () => {
+    if (month === 11) { setMonth(0); setYear(y => y + 1); }
+    else setMonth(m => m + 1);
+  };
+
+  // Build list of days for this month (Mon-Sat, no Sundays)
+  const getDays = () => {
+    const days = [];
+    const d = new Date(year, month, 1);
+    while (d.getMonth() === month) {
+      const dow = d.getDay();
+      if (dow !== 0) { // exclude Sundays
+        days.push(new Date(d));
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    return days;
+  };
+
+  const days = getDays();
+  const bankHolDates = new Set(bankHolidays.map(h => h.date));
+
+  // Check if a date falls within employee's recorded leave
+  const getLeaveType = (dateStr) => {
+    for (const l of (emp.leave || [])) {
+      if (dateStr >= l.from && dateStr <= l.to) return l.type;
+    }
+    return null;
+  };
+
+  const calcHours = (start, finish) => {
+    if (!start || !finish) return 0;
+    const [sh, sm] = start.split(":").map(Number);
+    const [fh, fm] = finish.split(":").map(Number);
+    const totalMins = (fh * 60 + fm) - (sh * 60 + sm) - 30; // deduct 30 min lunch
+    return Math.max(0, totalMins / 60);
+  };
+
+  const updateEntry = (dateStr, field, val) => {
+    const updated = { ...entries, [dateStr]: { ...(entries[dateStr] || {}), [field]: val } };
+    setEntries(updated);
+  };
+
+  const saveMonth = () => {
+    setSaving(true);
+    try { localStorage.setItem(storageKey, JSON.stringify(entries)); } catch {}
+    setTimeout(() => setSaving(false), 800);
+  };
+
+  const totalHours = days.reduce((sum, d) => {
+    const ds = d.toISOString().split("T")[0];
+    const e = entries[ds];
+    if (!e?.start || !e?.finish) return sum;
+    return sum + calcHours(e.start, e.finish);
+  }, 0);
+
+  const rate = parseFloat(hourlyRate) || 0;
+  const totalPay = totalHours * rate;
+
+  const monthName = new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+
+  const emailAccountant = () => {
+    const lines = days.map(d => {
+      const ds = d.toISOString().split("T")[0];
+      const dayName = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+      const isBH = bankHolDates.has(ds);
+      const leave = getLeaveType(ds);
+      const e = entries[ds];
+      if (isBH) return `${dayName}: Bank Holiday`;
+      if (leave) return `${dayName}: ${leave}`;
+      if (!e?.start || !e?.finish) return `${dayName}: No entry`;
+      const hrs = calcHours(e.start, e.finish);
+      return `${dayName}: ${e.start}–${e.finish} = ${hrs.toFixed(2)} hrs`;
+    }).join("\n");
+
+    const body = `Monthly Hours — ${emp.name} — ${monthName}\n\nHourly Rate: £${rate.toFixed(2)}\n\n${lines}\n\nTOTAL HOURS: ${totalHours.toFixed(2)}\nTOTAL PAY: £${totalPay.toFixed(2)}`;
+    const mailto = `mailto:karen@mmsaccountants.co.uk?subject=Monthly Hours - ${emp.name} - ${monthName}&body=${encodeURIComponent(body)}`;
+    window.open(mailto);
+  };
+
+  const inp = { padding: "5px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12 };
+
+  if (!expanded) {
+    return (
+      <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+        <button onClick={() => setExpanded(true)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          ▼ Monthly Hours
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <button onClick={() => setExpanded(false)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          ▲ Monthly Hours
+        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={prevMonth} style={{ background: C.navy, color: C.white, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 14 }}>◀</button>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.navy, minWidth: 130, textAlign: "center" }}>{monthName}</span>
+          <button onClick={nextMonth} style={{ background: C.navy, color: C.white, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 14 }}>▶</button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <label style={{ fontSize: 12, color: C.textLight }}>Rate: £</label>
+          <input value={hourlyRate} onChange={e => setHourlyRate(e.target.value)} type="number" step="0.01" placeholder="0.00"
+            style={{ ...inp, width: 70 }} />
+          <span style={{ fontSize: 12, color: C.textLight }}>/hr</span>
+        </div>
+      </div>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
+        <thead>
+          <tr style={{ background: C.navy, color: C.white }}>
+            <th style={{ padding: "6px 8px", textAlign: "left" }}>Day</th>
+            <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Start</th>
+            <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Finish</th>
+            <th style={{ padding: "6px 8px", textAlign: "center", width: 70 }}>Hours</th>
+            <th style={{ padding: "6px 8px", textAlign: "right", width: 80 }}>Pay</th>
+          </tr>
+        </thead>
+        <tbody>
+          {days.map((d, i) => {
+            const ds = d.toISOString().split("T")[0];
+            const isBH = bankHolDates.has(ds);
+            const leave = getLeaveType(ds);
+            const isSat = d.getDay() === 6;
+            const e = entries[ds] || {};
+            const hrs = calcHours(e.start, e.finish);
+            const pay = hrs * rate;
+            const dayLabel = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+
+            let rowBg = i % 2 === 0 ? C.white : C.silverLighter;
+            let statusCell = null;
+
+            if (isBH) {
+              rowBg = "#fff8e1";
+              statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: "#b8860b", fontStyle: "italic" }}>Bank Holiday</td>;
+            } else if (leave) {
+              rowBg = leave === "Holiday" ? "#e8f5e9" : "#fff0f0";
+              statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: leave === "Holiday" ? C.success : C.danger, fontStyle: "italic" }}>{leave}</td>;
+            }
+
+            return (
+              <tr key={ds} style={{ background: rowBg }}>
+                <td style={{ padding: "5px 8px", fontWeight: isSat ? 700 : 400, color: isSat ? C.accent : C.text }}>
+                  {dayLabel}{isSat ? " (OT)" : ""}
+                </td>
+                {statusCell || (
+                  <>
+                    <td style={{ padding: "4px 6px" }}>
+                      <input type="time" value={e.start || ""} onChange={ev => updateEntry(ds, "start", ev.target.value)}
+                        style={{ ...inp, width: "100%" }} />
+                    </td>
+                    <td style={{ padding: "4px 6px" }}>
+                      <input type="time" value={e.finish || ""} onChange={ev => updateEntry(ds, "finish", ev.target.value)}
+                        style={{ ...inp, width: "100%" }} />
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: hrs > 0 ? C.navy : C.textLight }}>
+                      {hrs > 0 ? hrs.toFixed(2) : "—"}
+                    </td>
+                  </>
+                )}
+                {!statusCell && (
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: pay > 0 ? C.success : C.textLight }}>
+                    {pay > 0 ? `£${pay.toFixed(2)}` : "—"}
+                  </td>
+                )}
+                {statusCell && <td style={{ padding: "6px 8px" }}></td>}
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr style={{ background: C.navy, color: C.white, fontWeight: 700 }}>
+            <td colSpan={3} style={{ padding: "8px 10px", textAlign: "right" }}>TOTALS</td>
+            <td style={{ padding: "8px 10px", textAlign: "center" }}>{totalHours.toFixed(2)} hrs</td>
+            <td style={{ padding: "8px 10px", textAlign: "right" }}>£{totalPay.toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <Btn small onClick={saveMonth} disabled={saving}>{saving ? "Saved ✓" : "💾 Save Month"}</Btn>
+        <Btn small outline onClick={emailAccountant}>✉ Email to Accountant</Btn>
+      </div>
+    </div>
+  );
+}
+
 function HRModule({ toast }) {
   const [employees, setEmployees] = useState(() => {
     try { return JSON.parse(localStorage.getItem("rsm_hr_employees") || "[]"); } catch { return []; }
   });
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", title: "", startDate: todayStr() });
+  const [form, setForm] = useState({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
   const [leaveForm, setLeaveForm] = useState(null);
   const [bankHolidays, setBankHolidays] = useState([]);
   const [showBankHols, setShowBankHols] = useState(false);
@@ -1012,7 +1225,7 @@ function HRModule({ toast }) {
   const addEmployee = () => {
     if (!form.name.trim()) return;
     save([...employees, { id: Date.now().toString(), ...form, leave: [] }]);
-    setForm({ name: "", title: "", startDate: todayStr() });
+    setForm({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
     setShowForm(false);
     toast("Employee added");
   };
@@ -1072,7 +1285,7 @@ function HRModule({ toast }) {
 
       {showForm && (
         <div style={{ background: C.silverLighter, borderRadius: 8, padding: 16, marginBottom: 20 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 150px", gap: 10, marginBottom: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 130px 100px", gap: 10, marginBottom: 10 }}>
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Full Name</label>
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
@@ -1084,6 +1297,10 @@ function HRModule({ toast }) {
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Start Date</label>
               <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} style={inp} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Hourly Rate £</label>
+              <input type="number" step="0.01" value={form.hourly_rate} onChange={e => setForm(f => ({ ...f, hourly_rate: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} placeholder="0.00" />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1141,7 +1358,10 @@ function HRModule({ toast }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{emp.name}</div>
-                <div style={{ fontSize: 13, color: C.textLight }}>{emp.title}{emp.startDate ? ` · Started ${new Date(emp.startDate).toLocaleDateString("en-GB")}` : ""}</div>
+                <div style={{ fontSize: 13, color: C.textLight }}>
+                  {emp.title}{emp.startDate ? ` · Started ${new Date(emp.startDate).toLocaleDateString("en-GB")}` : ""}
+                  {emp.hourly_rate ? ` · £${parseFloat(emp.hourly_rate).toFixed(2)}/hr` : ""}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn small onClick={() => setLeaveForm({ empId: emp.id, type: "Holiday", from: todayStr(), to: todayStr() })}>+ Add Leave</Btn>
@@ -1169,7 +1389,7 @@ function HRModule({ toast }) {
               <div style={{ background: pct > 85 ? C.danger : C.accent, width: `${pct}%`, height: "100%", borderRadius: 4 }}></div>
             </div>
             {(emp.leave || []).length > 0 && (
-              <div>
+              <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>LEAVE HISTORY</div>
                 {[...(emp.leave || [])].sort((a, b) => new Date(b.from) - new Date(a.from)).map(l => (
                   <div key={l.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "5px 10px", background: l.type === "Holiday" ? "#e8f5e9" : "#fff0f0", borderRadius: 4, marginBottom: 3, fontSize: 12 }}>
@@ -1181,6 +1401,7 @@ function HRModule({ toast }) {
                 ))}
               </div>
             )}
+            <MonthlyHours emp={emp} bankHolidays={bankHolidays} />
           </div>
         );
       })}
