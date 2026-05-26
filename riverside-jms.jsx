@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v7.7";
+const VERSION = "v8.0";
 
 const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
 const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
@@ -141,6 +141,7 @@ export default function App(){
   const[partDelivery,setPartDelivery]=useState(null);
   const[emailDelivery,setEmailDelivery]=useState(null);
   const[deliveryOptions,setDeliveryOptions]=useState(null);
+  const[deliveryFlow,setDeliveryFlow]=useState(null);
 
   useEffect(()=>{
     loadAll();
@@ -611,6 +612,36 @@ export default function App(){
         </div>
       </Overlay>}
 
+      {/* DELIVERY FLOW */}
+      {deliveryFlow&&(
+        <Overlay onClose={()=>setDeliveryFlow(null)}>
+          <DeliveryFlow
+            job={deliveryFlow}
+            customers={customers}
+            onComplete={async(job,selectedIds,method)=>{
+              // Record despatched lines
+              const now=todayStr();
+              const updatedLines=job.lines.map(l=>selectedIds.includes(l.id)?{...l,delivered:true,deliveredDate:now}:l);
+              const allDelivered=updatedLines.every(l=>l.delivered);
+              const newStatus=allDelivered?"Ready to Despatch":"Part Despatched";
+              await supabase.from("jobs").update({lines:updatedLines,status:newStatus}).eq("id",job.id);
+              await loadJobs();
+              const updated={...job,lines:updatedLines,status:newStatus};
+              setDeliveryFlow(null);
+              const deliveryDoc={...updated,lines:updatedLines.filter(l=>selectedIds.includes(l.id))};
+              if(method==="print"||method==="both"){
+                setTimeout(()=>setDeliveryJob(deliveryDoc),200);
+              }
+              if(method==="email"||method==="both"){
+                setTimeout(()=>setEmailDelivery(deliveryDoc),method==="both"?2000:200);
+              }
+              toast_(`Delivery note recorded — job: ${newStatus}`);
+            }}
+            onCancel={()=>setDeliveryFlow(null)}
+          />
+        </Overlay>
+      )}
+
       {/* JOB DETAIL */}
       {jobModal&&!editJob&&<Overlay onClose={()=>setJobModal(null)}>
         <JobDetail job={jobModal}
@@ -767,7 +798,7 @@ function JobTable({jobs,onOpen}){
 }
 
 // ── JOB DETAIL ────────────────────────────────────────────────────────────────
-function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDelivery,onPartDelivery,onEmailDelivery,stageInput,setStageInput,allJobs}){
+function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDeliveryFlow,stageInput,setStageInput,allJobs}){
   const allS=job.stages||[];
   const done=allS.filter(s=>job.stages_complete?.[s]).length;
   const next=STATUS_FLOW[STATUS_FLOW.indexOf(job.status)+1];
@@ -1310,6 +1341,77 @@ function EmailDeliveryForm({job,customers,onSend,onCancel}){
       <div style={{fontSize:12,color:C.textLight,marginBottom:16}}>The delivery note will be sent as a formatted HTML email.</div>
       <div style={{display:"flex",gap:10}}>
         <Btn primary onClick={async()=>{setSending(true);await onSend(to,job);setSending(false);}} disabled={!to||sending}>{sending?"Sending…":"Send Email"}</Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── DELIVERY FLOW ─────────────────────────────────────────────────────────────
+function DeliveryFlow({job,customers,onComplete,onCancel}){
+  const pending=(job.lines||[]).filter(l=>!l.delivered);
+  const prevDelivered=(job.lines||[]).filter(l=>l.delivered);
+  const[selected,setSelected]=useState(pending.map(l=>l.id));
+  const[method,setMethod]=useState("print");
+  const[note,setNote]=useState("");
+  function toggle(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+
+  return(
+    <div style={{minWidth:300,maxWidth:560}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>📋 Delivery Note</div>
+      <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>Select items being despatched today for <strong>{job.job_ref}</strong></div>
+
+      {/* Previously despatched */}
+      {prevDelivered.length>0&&(
+        <div style={{background:C.successBg,border:`1px solid #90d0a0`,borderRadius:8,padding:12,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.success,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>Previously Despatched</div>
+          {prevDelivered.map(l=>(
+            <div key={l.id} style={{display:"flex",gap:8,padding:"4px 0",fontSize:13,borderBottom:`1px solid #c0e8c8`}}>
+              <span style={{color:C.success}}>✓</span>
+              <span style={{flex:1,color:C.textMid}}>{l.desc||"—"}</span>
+              <span style={{color:C.textLight,fontSize:12}}>×{l.qty}</span>
+              <span style={{color:C.success,fontSize:12,whiteSpace:"nowrap"}}>Sent {fmt(l.deliveredDate)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Select items */}
+      <div style={{fontSize:11,fontWeight:700,color:C.textLight,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>
+        Items to Despatch Today
+      </div>
+      {pending.length===0&&<Em>All items have already been despatched.</Em>}
+      {pending.map(l=>(
+        <div key={l.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:selected.includes(l.id)?C.successBg:C.white,border:`1px solid ${selected.includes(l.id)?"#90d0a0":C.border}`,borderRadius:8,marginBottom:8,cursor:"pointer"}} onClick={()=>toggle(l.id)}>
+          <div style={{width:22,height:22,borderRadius:4,border:`2px solid ${selected.includes(l.id)?C.success:C.border}`,background:selected.includes(l.id)?C.success:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            {selected.includes(l.id)&&<span style={{color:"#fff",fontSize:13,fontWeight:700}}>✓</span>}
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text}}>{l.desc||"—"}</div>
+            <div style={{fontSize:12,color:C.textLight}}>Qty: {l.qty}</div>
+          </div>
+        </div>
+      ))}
+
+      {/* Delivery method */}
+      {selected.length>0&&(
+        <>
+          <div style={{fontSize:11,fontWeight:700,color:C.textLight,letterSpacing:0.4,textTransform:"uppercase",margin:"16px 0 8px"}}>How to Send</div>
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+            {[["print","🖨 Print (2 copies)"],["email","✉ Email"],["both","🖨 + ✉ Both"]].map(([v,label])=>(
+              <button key={v} style={{background:method===v?C.navy:C.white,color:method===v?C.white:C.textMid,border:`1px solid ${method===v?C.navy:C.border}`,borderRadius:20,padding:"6px 14px",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>setMethod(v)}>{label}</button>
+            ))}
+          </div>
+          <FF label="Note (optional)">
+            <input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. driver name, vehicle reg"/>
+          </FF>
+        </>
+      )}
+
+      <div style={{display:"flex",gap:10,marginTop:16}}>
+        <Btn primary onClick={()=>onComplete(job,selected,method)} disabled={selected.length===0}>
+          Confirm & {method==="print"?"Print":method==="email"?"Email":"Print + Email"}
+        </Btn>
         <Btn ghost onClick={onCancel}>Cancel</Btn>
       </div>
     </div>
