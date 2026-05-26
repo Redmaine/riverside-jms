@@ -93,7 +93,8 @@ function StatusBadge({ s }) {
     "Quote": { bg: "#f0e6cc", col: "#8a5e00" },
     "In Production": { bg: "#cce5cc", col: "#1a6b1a" },
     "Part Despatched": { bg: "#cce0f5", col: "#1a4a8a" },
-    "Ready to Despatch": { bg: "#e0ccf5", col: "#5a1a8a" },
+    "Fully Despatched": { bg: "#e0ccf5", col: "#5a1a8a" },
+    "Ready to Invoice": { bg: "#ffd6cc", col: "#8a2000" },
     "Invoiced": { bg: "#ddd", col: "#444" },
     "Needs Review": { bg: "#ffd6cc", col: "#8a2000" },
   };
@@ -446,7 +447,7 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
       return match && !l.despatched ? { ...l, despatched: true, despatchDate: now } : l;
     });
     const allDone = updatedLines.every(l => l.despatched);
-    const newStatus = allDone ? "Ready to Despatch" : "Part Despatched";
+    const newStatus = allDone ? "Fully Despatched" : "Part Despatched";
     await supabase.from("jobs").update({ lines: updatedLines, status: newStatus }).eq("id", job.id);
     setDnItems(going);
     setStep("send");
@@ -633,7 +634,7 @@ function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
         <div>
           <label style={lbl}>Status</label>
           <select value={form.status} onChange={e => set("status", e.target.value)} style={inp}>
-            {["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced", "Needs Review"].map(s => <option key={s}>{s}</option>)}
+            {["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced", "Needs Review"].map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
         <div>
@@ -762,7 +763,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
     } catch (e) { console.error("Reload error", e); }
   };
 
-  const flow = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
+  const flow = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced"];
   const idx = flow.indexOf(job.status);
 
   const advance = async () => {
@@ -780,6 +781,15 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
     toast("Job invoiced");
     setJob(j => ({ ...j, status: "Invoiced", invoice_ref: invoiceRef }));
     setShowInvoicePrompt(false);
+    onRefresh();
+  };
+
+  const resetDespatch = async () => {
+    if (!window.confirm("Reset all despatch flags? This will mark all items as not despatched.")) return;
+    const resetLines = (job.lines || []).map(l => ({ ...l, despatched: false, despatchDate: null }));
+    await supabase.from("jobs").update({ lines: resetLines, status: "In Production" }).eq("id", job.id);
+    toast("Despatch flags reset");
+    setJob(j => ({ ...j, lines: resetLines, status: "In Production" }));
     onRefresh();
   };
 
@@ -920,13 +930,16 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
         <Btn onClick={() => setEditing(true)} outline small>✏ Edit</Btn>
-        {job.status !== "Invoiced" && idx < flow.length - 1 && (
+        {job.status !== "Invoiced" && idx < flow.length - 1 && !["In Production", "Part Despatched"].includes(job.status) && (
           <Btn onClick={advance} small color={C.success}>→ {flow[idx + 1]}</Btn>
         )}
         {!["Quote", "Invoiced"].includes(job.status) && (
           <Btn onClick={() => setShowDN(!showDN)} small outline>📋 Delivery Note</Btn>
         )}
         <Btn onClick={() => setView("jobsheet")} small outline>🖨 Job Sheet</Btn>
+        {(job.lines || []).some(l => l.despatched) && (
+          <Btn onClick={resetDespatch} small danger outline>↺ Reset Despatch</Btn>
+        )}
         {job.status === "Quote" && <Btn onClick={() => setView("quote")} small outline>📄 Print Quote</Btn>}
       </div>
     </Modal>
@@ -1233,10 +1246,10 @@ function Dashboard({ jobs, onJobClick }) {
 
   const pipeline = jobs.filter(j => j.status === "In Production").reduce((a, j) => a + lineTotal(j.lines), 0);
   const overdue = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date()).length;
-  const awaitingInvoice = jobs.filter(j => j.status === "Ready to Despatch").length;
+  const awaitingInvoice = jobs.filter(j => j.status === "Ready to Invoice").length;
   const tomorrowStr = addDays(todayStr(), 1);
-  const dueTomorrow = jobs.filter(j => j.due_date === tomorrowStr && !["Ready to Despatch", "Invoiced"].includes(j.status)).length;
-  const statuses = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
+  const dueTomorrow = jobs.filter(j => j.due_date === tomorrowStr && !["Fully Despatched", "Ready to Invoice", "Invoiced"].includes(j.status)).length;
+  const statuses = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced"];
 
   const displayJobs = filterStatus
     ? jobs.filter(j => j.status === filterStatus)
@@ -1252,7 +1265,7 @@ function Dashboard({ jobs, onJobClick }) {
         {[
           { label: "In Production Value", val: fmt(pipeline), color: C.accent },
           { label: "Overdue Jobs", val: overdue, color: overdue > 0 ? C.danger : C.success },
-          { label: "Awaiting Invoice", val: awaitingInvoice, color: awaitingInvoice > 0 ? C.warning : C.success },
+          { label: "Ready to Invoice", val: awaitingInvoice, color: awaitingInvoice > 0 ? C.warning : C.success },
           { label: "Due Tomorrow", val: dueTomorrow, color: dueTomorrow > 0 ? C.warning : C.success },
         ].map(({ label, val, color }) => (
           <div key={label} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
@@ -1322,7 +1335,7 @@ function Dashboard({ jobs, onJobClick }) {
 function JobsList({ jobs, onJobClick }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
-  const statuses = ["All", "Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced", "Needs Review"];
+  const statuses = ["All", "Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced", "Needs Review"];
   const filtered = jobs.filter(j => {
     const q = search.toLowerCase();
     const matchSearch = !q || (j.job_ref || "").toLowerCase().includes(q) || (j.customer_name || "").toLowerCase().includes(q) || (j.po_number || "").toLowerCase().includes(q) || (j.lines || []).some(l => (l.desc || "").toLowerCase().includes(q));
@@ -1379,7 +1392,7 @@ function CustomersList({ customers, jobs, onEdit, onCustomerClick }) {
         style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, marginBottom: 14, boxSizing: "border-box" }} />
       {filtered.map(c => {
         const custJobs = jobs.filter(j => j.customer_id === c.id || j.customer_name === c.name);
-        const uninvoiced = custJobs.filter(j => j.status === "Ready to Despatch");
+        const uninvoiced = custJobs.filter(j => j.status === "Ready to Invoice");
         return (
           <div key={c.id} onDoubleClick={() => onCustomerClick(c)}
             style={{ padding: "12px 14px", background: C.white, border: `1px solid ${uninvoiced.length > 0 ? C.warning : C.border}`, borderRadius: 6, marginBottom: 8 }}>
@@ -1410,9 +1423,9 @@ function CustomersList({ customers, jobs, onEdit, onCustomerClick }) {
 
 function Alerts({ jobs, onJobClick }) {
   const overdue = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date());
-  const awaitingInvoice = jobs.filter(j => j.status === "Ready to Despatch");
+  const awaitingInvoice = jobs.filter(j => j.status === "Ready to Invoice");
   const tomorrowStr = addDays(todayStr(), 1);
-  const dueTomorrow = jobs.filter(j => j.due_date === tomorrowStr && !["Ready to Despatch", "Invoiced"].includes(j.status));
+  const dueTomorrow = jobs.filter(j => j.due_date === tomorrowStr && !["Fully Despatched", "Ready to Invoice", "Invoiced"].includes(j.status));
 
   const Section = ({ title, items, color, icon }) => (
     <div style={{ marginBottom: 24 }}>
@@ -1434,7 +1447,7 @@ function Alerts({ jobs, onJobClick }) {
   return (
     <div>
       <Section title="OVERDUE" items={overdue} color={C.danger} icon="🔴" />
-      <Section title="AWAITING INVOICE" items={awaitingInvoice} color={C.warning} icon="⚠️" />
+      <Section title="READY TO INVOICE" items={awaitingInvoice} color={C.warning} icon="⚠️" />
       <Section title="DUE TOMORROW" items={dueTomorrow} color={C.accent} icon="📅" />
     </div>
   );
