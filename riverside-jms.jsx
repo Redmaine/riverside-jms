@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v8.2";
+const VERSION = "v8.3";
 
 const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
 const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
@@ -142,7 +142,7 @@ export default function App(){
   const[emailDelivery,setEmailDelivery]=useState(null);
   const[deliveryOptions,setDeliveryOptions]=useState(null);
   const[deliveryFlow,setDeliveryFlow]=useState(null);
-  const[staff,setStaff]=useState(()=>{try{return JSON.parse(localStorage.getItem("rsm_staff"))||[];}catch{return[];}});
+  const[staff,setStaff]=useState([]);
   const[hrModal,setHrModal]=useState(null);
   const[addLeave,setAddLeave]=useState(null);
 
@@ -155,7 +155,8 @@ export default function App(){
     return()=>{js.unsubscribe();cs.unsubscribe();window.removeEventListener("mondayprint",om);};
   },[]);
 
-  async function loadAll(){setLoading(true);await Promise.all([loadJobs(),loadCustomers()]);setLoading(false);}
+  async function loadAll(){setLoading(true);await Promise.all([loadJobs(),loadCustomers(),loadStaff()]);setLoading(false);}
+  async function loadStaff(){const{data}=await supabase.from("staff").select("*").order("name");if(data)setStaff(data);}
   async function loadJobs(){const{data}=await supabase.from("jobs").select("*").order("created_at",{ascending:false});if(data)setJobs(data);}
   async function loadCustomers(){const{data}=await supabase.from("customers").select("*").order("name");if(data)setCustomers(data);}
   useMondayReport(jobs);
@@ -1588,7 +1589,7 @@ function MonthlyHoursView({staffMember,month,year,hoursData,onSave,onEmail}){
     return a+calcHours(e.start,e.end);
   },0);
 
-  const rate=parseFloat(staffMember.hourlyRate||0);
+  const rate=parseFloat(staffMember.hourly_rate||staffMember.hourlyRate||0);
   const totalPay=totalHours*rate;
 
   function save(){
@@ -1679,7 +1680,7 @@ function HoursSection({staffMember,onEmailAccountant}){
   const savedEntries=hoursData[key]||{};
   const days=getDaysInMonth(year,month,staffMember);
   const totalHours=days.reduce((a,d)=>{const e=savedEntries[d.date]||{};return e.start&&e.end?a+calcHours(e.start,e.end):a;},0);
-  const rate=parseFloat(staffMember.hourlyRate||0);
+  const rate=parseFloat(staffMember.hourly_rate||staffMember.hourlyRate||0);
 
   return(
     <div style={{marginTop:16,borderTop:`1px solid ${C.border}`,paddingTop:12}}>
@@ -1701,7 +1702,7 @@ function HoursSection({staffMember,onEmailAccountant}){
         month={month}
         year={year}
         hoursData={hoursData}
-        onSave={(key,entries)=>{setHoursData(p=>({...p,[key]:entries}));toast_("Hours saved");}}
+        onSave={async(key,entries)=>{const newData={...hoursData,[key]:entries};setHoursData(newData);try{localStorage.setItem("rsm_hours_"+staffMember.id,JSON.stringify(newData));}catch{}toast_("Hours saved");}}
         onEmail={(entries,days,totalHours,totalPay)=>onEmailAccountant(entries,days,totalHours,totalPay,monthLabel(year,month))}
       />}
     </div>
@@ -1759,24 +1760,37 @@ function HRView({ staff, setStaff, hrModal, setHrModal, addLeave, setAddLeave })
   const [editStaff, setEditStaff] = useState(null);
   const hy = getHolidayYear();
 
-  function saveStaffMember(member) {
+  async function saveStaffMember(member) {
     const isNew = !member.id;
-    const saved = isNew ? { ...member, id: "s" + Date.now(), entries: [] } : member;
-    setStaff(p => isNew ? [...p, saved] : p.map(x => x.id === saved.id ? saved : x));
+    const payload = { name: member.name, role: member.role||"", start_date: member.startDate||member.start_date||null, hourly_rate: parseFloat(member.hourlyRate||member.hourly_rate||0)||null, entries: member.entries||[] };
+    if(isNew){ await supabase.from("staff").insert([payload]); }
+    else { await supabase.from("staff").update(payload).eq("id", member.id); }
+    const{data}=await supabase.from("staff").select("*").order("name");
+    if(data) setStaff(data);
     setEditStaff(null);
   }
 
-  function deleteStaff(id) {
+  async function deleteStaff(id) {
+    await supabase.from("staff").delete().eq("id", id);
     setStaff(p => p.filter(x => x.id !== id));
   }
 
-  function saveLeave(staffId, entry) {
-    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: [...(m.entries || []), { ...entry, id: "e" + Date.now() }] } : m));
+  async function saveLeave(staffId, entry) {
+    const member = staff.find(m => m.id === staffId);
+    if(!member) return;
+    const newEntry = { ...entry, id: "e" + Date.now() };
+    const updatedEntries = [...(member.entries || []), newEntry];
+    await supabase.from("staff").update({ entries: updatedEntries }).eq("id", staffId);
+    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: updatedEntries } : m));
     setAddLeave(null);
   }
 
-  function deleteEntry(staffId, entryId) {
-    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: (m.entries || []).filter(e => e.id !== entryId) } : m));
+  async function deleteEntry(staffId, entryId) {
+    const member = staff.find(m => m.id === staffId);
+    if(!member) return;
+    const updatedEntries = (member.entries || []).filter(e => e.id !== entryId);
+    await supabase.from("staff").update({ entries: updatedEntries }).eq("id", staffId);
+    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: updatedEntries } : m));
   }
 
   return (
@@ -1805,7 +1819,7 @@ function HRView({ staff, setStaff, hrModal, setHrModal, addLeave, setAddLeave })
               <div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: C.navy }}>{m.name}</div>
                 {m.role && <div style={{ fontSize: 12, color: C.textLight, marginTop: 2 }}>{m.role}</div>}
-                {m.startDate && <div style={{ fontSize: 12, color: C.textLight }}>Started: {fmt(m.startDate)}</div>}
+                {(m.start_date||m.startDate) && <div style={{ fontSize: 12, color: C.textLight }}>Started: {fmt(m.start_date||m.startDate)}</div>}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={S.iconBtn} onClick={() => setAddLeave({ staffId: m.id, staffName: m.name })}>+ Add Leave</button>
@@ -1883,7 +1897,7 @@ function HRView({ staff, setStaff, hrModal, setHrModal, addLeave, setAddLeave })
                 const hrs=e.start&&e.end?calcHours(e.start,e.end):null;
                 return `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${d.dayName}</td><td style="padding:6px 10px;border-bottom:1px solid #eee">${fmt(d.date)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee">${d.isBH?"Bank Holiday":d.isAbsent?(d.absenceType==="holiday"?"Holiday":"Sickness"):(e.start||"—")}</td><td style="padding:6px 10px;border-bottom:1px solid #eee">${d.isBH||d.isAbsent?"":e.end||"—"}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${hrs!==null?fmtHours(hrs):"—"}</td></tr>`;
               }).join("");
-              const rate=parseFloat(m.hourlyRate||0);
+              const rate=parseFloat(m.hourly_rate||m.hourlyRate||0);
               const html=`<div style="font-family:Arial,sans-serif;max-width:700px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2><p style="color:#c8d0dc;margin:4px 0 0;font-size:13px">Monthly Hours — ${m.name} — ${monthLbl}</p></div><div style="padding:20px 24px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0f2a4a"><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Day</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Date</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Start</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Finish</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Hours</th></tr></thead><tbody>${rows}</tbody></table><div style="margin-top:16px;padding:12px 16px;background:#f4f6f9;border-radius:6px"><strong>Total Hours: ${fmtHours(totalHours)}</strong>${rate>0?" &nbsp;|&nbsp; Hourly Rate: "+fmtGBP(rate)+" &nbsp;|&nbsp; Total Pay: "+fmtGBP(totalHours*rate):""}</div></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR}</p></div></div>`;
               await sendEmail("karen@mmsaccountants.co.uk",`Monthly Hours — ${m.name} — ${monthLbl} — ${COMPANY}`,html);
               toast_("Hours emailed to Karen at MMS Accountants");
@@ -1899,8 +1913,8 @@ function HRView({ staff, setStaff, hrModal, setHrModal, addLeave, setAddLeave })
             <div style={{ fontSize: 18, fontWeight: 700, color: C.navy, marginBottom: 16 }}>{editStaff.id ? "Edit Employee" : "Add Employee"}</div>
             <FF label="Full Name"><input style={S.inp} value={editStaff.name} onChange={e => setEditStaff(p => ({ ...p, name: e.target.value }))} /></FF>
             <FF label="Role / Job Title"><input style={S.inp} value={editStaff.role || ""} onChange={e => setEditStaff(p => ({ ...p, role: e.target.value }))} /></FF>
-            <FF label="Start Date"><input type="date" style={S.inp} value={editStaff.startDate || ""} onChange={e => setEditStaff(p => ({ ...p, startDate: e.target.value }))} /></FF>
-            <FF label="Hourly Rate (£)"><input type="number" style={S.inp} value={editStaff.hourlyRate || ""} onChange={e => setEditStaff(p => ({ ...p, hourlyRate: e.target.value }))} placeholder="e.g. 12.50" step="0.01"/></FF>
+            <FF label="Start Date"><input type="date" style={S.inp} value={editStaff.start_date || editStaff.startDate || ""} onChange={e => setEditStaff(p => ({ ...p, start_date: e.target.value, startDate: e.target.value }))} /></FF>
+            <FF label="Hourly Rate (£)"><input type="number" style={S.inp} value={editStaff.hourly_rate || editStaff.hourlyRate || ""} onChange={e => setEditStaff(p => ({ ...p, hourly_rate: e.target.value, hourlyRate: e.target.value }))} placeholder="e.g. 12.50" step="0.01"/></FF>
             <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
               <Btn primary onClick={() => saveStaffMember(editStaff)}>Save</Btn>
               <Btn ghost onClick={() => setEditStaff(null)}>Cancel</Btn>
