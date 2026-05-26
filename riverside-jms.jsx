@@ -940,7 +940,9 @@ function HRModule({ toast }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", title: "", startDate: todayStr() });
   const [leaveForm, setLeaveForm] = useState(null);
-  const HOLIDAY_ALLOWANCE = 28;
+  const [bankHolidays, setBankHolidays] = useState([]);
+  const [showBankHols, setShowBankHols] = useState(false);
+  const HOLIDAY_ALLOWANCE = 20;
 
   const save = (emps) => {
     setEmployees(emps);
@@ -952,6 +954,25 @@ function HRModule({ toast }) {
     const yr = now.getMonth() >= 10 ? now.getFullYear() : now.getFullYear() - 1;
     return new Date(yr, 10, 1);
   };
+
+  const holidayYearEnd = () => {
+    const start = holidayYearStart();
+    return new Date(start.getFullYear() + 1, 10, 0);
+  };
+
+  useEffect(() => {
+    fetch("https://www.gov.uk/bank-holidays.json")
+      .then(r => r.json())
+      .then(data => {
+        const yrStart = holidayYearStart();
+        const yrEnd = holidayYearEnd();
+        const hols = (data["england-and-wales"]?.events || [])
+          .filter(e => { const d = new Date(e.date); return d >= yrStart && d <= yrEnd; })
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+        setBankHolidays(hols);
+      })
+      .catch(() => {});
+  }, []);
 
   const workingDays = (from, to) => {
     if (!from || !to) return 0;
@@ -1004,7 +1025,37 @@ function HRModule({ toast }) {
         <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>HR — Holiday &amp; Sickness</div>
         <Btn onClick={() => setShowForm(true)}>+ Add Employee</Btn>
       </div>
-      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 16 }}>Holiday year: 1 Nov – 31 Oct | Allowance: {HOLIDAY_ALLOWANCE} days | Sickness: unpaid</div>
+      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 16 }}>
+        Holiday year: 1 Nov – 31 Oct | Personal allowance: {HOLIDAY_ALLOWANCE} days | Bank holidays: separate (see below) | Sickness: unpaid
+      </div>
+
+      {/* Bank Holidays Panel */}
+      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14, marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>
+            🏦 UK Bank Holidays {holidayYearStart().getFullYear()}/{holidayYearEnd().getFullYear()} — {bankHolidays.length} days
+          </div>
+          <button onClick={() => setShowBankHols(!showBankHols)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontSize: 12, color: C.textLight }}>
+            {showBankHols ? "Hide" : "Show"}
+          </button>
+        </div>
+        {showBankHols && (
+          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 6 }}>
+            {bankHolidays.length === 0 && <div style={{ fontSize: 13, color: C.textLight }}>Loading bank holidays…</div>}
+            {bankHolidays.map((h, i) => {
+              const d = new Date(h.date);
+              const isPast = d < new Date();
+              return (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", padding: "5px 10px", background: isPast ? C.silverLighter : "#e8f5e9", borderRadius: 4, fontSize: 12 }}>
+                  <span style={{ fontSize: 14 }}>{isPast ? "✓" : "📅"}</span>
+                  <span style={{ flex: 1, color: isPast ? C.textLight : C.text, textDecoration: isPast ? "line-through" : "none" }}>{h.title}</span>
+                  <span style={{ color: C.textLight, fontWeight: 600 }}>{d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {showForm && (
         <div style={{ background: C.silverLighter, borderRadius: 8, padding: 16, marginBottom: 20 }}>
@@ -1088,7 +1139,7 @@ function HRModule({ toast }) {
               <div style={{ background: C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>HOLIDAY TAKEN</div>
                 <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{taken}</div>
-                <div style={{ fontSize: 11, color: C.textLight }}>of {HOLIDAY_ALLOWANCE} days</div>
+                <div style={{ fontSize: 11, color: C.textLight }}>of {HOLIDAY_ALLOWANCE} personal days</div>
               </div>
               <div style={{ background: remaining <= 5 ? "#fff0f0" : "#e8f5e9", borderRadius: 6, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>REMAINING</div>
