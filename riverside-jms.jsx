@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v8.0";
+const VERSION = "v8.1";
 
 const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
 const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
@@ -142,6 +142,9 @@ export default function App(){
   const[emailDelivery,setEmailDelivery]=useState(null);
   const[deliveryOptions,setDeliveryOptions]=useState(null);
   const[deliveryFlow,setDeliveryFlow]=useState(null);
+  const[staff,setStaff]=useState(()=>{try{return JSON.parse(localStorage.getItem("rsm_staff"))||[];}catch{return[];}});
+  const[hrModal,setHrModal]=useState(null);
+  const[addLeave,setAddLeave]=useState(null);
 
   useEffect(()=>{
     loadAll();
@@ -424,7 +427,7 @@ export default function App(){
           </div>
         </div>
         <nav style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
-          {[{k:"dashboard",l:"Dashboard"},{k:"jobs",l:"Jobs"},{k:"quotes",l:"Quotes"},{k:"customers",l:"Customers"},{k:"pricing",l:"Price Search"},{k:"alerts",l:"Alerts"}].map(({k,l})=>(
+          {[{k:"dashboard",l:"Dashboard"},{k:"jobs",l:"Jobs"},{k:"quotes",l:"Quotes"},{k:"customers",l:"Customers"},{k:"pricing",l:"Price Search"},{k:"alerts",l:"Alerts"},{k:"hr",l:"HR"}].map(({k,l})=>(
             <button key={k} style={{background:"none",border:"none",color:view===k?C.white:C.silver,fontFamily:"inherit",fontSize:13,fontWeight:600,padding:"4px 14px",cursor:"pointer",borderBottom:view===k?`3px solid ${C.gold}`:"3px solid transparent",whiteSpace:"nowrap",height:62,letterSpacing:0.3,position:"relative"}} onClick={()=>setView(k)}>
               {l}{k==="alerts"&&(uninvoiced.length+overdue.length+dueTomorrow.length>0)&&<span style={{position:"absolute",top:14,right:6,width:7,height:7,borderRadius:"50%",background:"#e84040"}}/>}
             </button>
@@ -551,6 +554,9 @@ export default function App(){
               </div>}
               {!priceSearch&&<Em center>Type a keyword to search pricing history across all jobs.</Em>}
             </>}
+
+            {/* HR */}
+            {view==="hr"&&<HRView staff={staff} setStaff={setStaff} hrModal={hrModal} setHrModal={setHrModal} addLeave={addLeave} setAddLeave={setAddLeave}/>}
 
             {/* ALERTS */}
             {view==="alerts"&&<>
@@ -1505,6 +1511,251 @@ function FileAttachments({job}){
     </div>
   );
 }
+
+
+// ── HR TRACKER ────────────────────────────────────────────────────────────────
+const HOLIDAY_ALLOWANCE = 28;
+const HOLIDAY_YEAR_START_MONTH = 10; // November = month 10 (0-indexed)
+
+function getHolidayYear() {
+  const now = new Date();
+  const month = now.getMonth(); // 0-indexed
+  const year = now.getFullYear();
+  if (month >= HOLIDAY_YEAR_START_MONTH) {
+    return { start: new Date(year, HOLIDAY_YEAR_START_MONTH, 1), end: new Date(year + 1, HOLIDAY_YEAR_START_MONTH, 0), label: `${year}/${year+1}` };
+  }
+  return { start: new Date(year - 1, HOLIDAY_YEAR_START_MONTH, 1), end: new Date(year, HOLIDAY_YEAR_START_MONTH, 0), label: `${year-1}/${year}` };
+}
+
+function countDays(entries, type) {
+  const hy = getHolidayYear();
+  return (entries || []).filter(e => e.type === type).reduce((total, e) => {
+    const from = new Date(e.from);
+    const to = new Date(e.to);
+    if (type === "holiday" && (to < hy.start || from > hy.end)) return total;
+    let count = 0;
+    const cur = new Date(Math.max(from, hy.start));
+    const end = new Date(Math.min(to, hy.end));
+    while (cur <= end) {
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) count++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return total + count;
+  }, 0);
+}
+
+function countSicknessDays(entries) {
+  return (entries || []).filter(e => e.type === "sickness").reduce((total, e) => {
+    const from = new Date(e.from);
+    const to = new Date(e.to);
+    let count = 0;
+    const cur = new Date(from);
+    while (cur <= to) {
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) count++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return total + count;
+  }, 0);
+}
+
+function HRView({ staff, setStaff, hrModal, setHrModal, addLeave, setAddLeave }) {
+  const [editStaff, setEditStaff] = useState(null);
+  const hy = getHolidayYear();
+
+  function saveStaffMember(member) {
+    const isNew = !member.id;
+    const saved = isNew ? { ...member, id: "s" + Date.now(), entries: [] } : member;
+    setStaff(p => isNew ? [...p, saved] : p.map(x => x.id === saved.id ? saved : x));
+    setEditStaff(null);
+  }
+
+  function deleteStaff(id) {
+    setStaff(p => p.filter(x => x.id !== id));
+  }
+
+  function saveLeave(staffId, entry) {
+    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: [...(m.entries || []), { ...entry, id: "e" + Date.now() }] } : m));
+    setAddLeave(null);
+  }
+
+  function deleteEntry(staffId, entryId) {
+    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: (m.entries || []).filter(e => e.id !== entryId) } : m));
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <h1 style={S.pageH}>HR — Holiday & Sickness Tracker</h1>
+        <Btn onClick={() => setEditStaff({ id: "", name: "", role: "", startDate: "" })}>+ Add Employee</Btn>
+      </div>
+      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 20 }}>
+        Holiday year: {hy.label} (1 Nov — 31 Oct) · Allowance: {HOLIDAY_ALLOWANCE} days per person
+      </div>
+
+      {staff.length === 0 && <Em center>No employees added yet. Click "+ Add Employee" to get started.</Em>}
+
+      {staff.map(m => {
+        const holidayTaken = countDays(m.entries, "holiday");
+        const holidayRemaining = HOLIDAY_ALLOWANCE - holidayTaken;
+        const sickDays = countSicknessDays(m.entries);
+        const sickEntries = (m.entries || []).filter(e => e.type === "sickness");
+        const holidayEntries = (m.entries || []).filter(e => e.type === "holiday");
+        const pct = Math.round((holidayTaken / HOLIDAY_ALLOWANCE) * 100);
+
+        return (
+          <div key={m.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: C.navy }}>{m.name}</div>
+                {m.role && <div style={{ fontSize: 12, color: C.textLight, marginTop: 2 }}>{m.role}</div>}
+                {m.startDate && <div style={{ fontSize: 12, color: C.textLight }}>Started: {fmt(m.startDate)}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={S.iconBtn} onClick={() => setAddLeave({ staffId: m.id, staffName: m.name })}>+ Add Leave</button>
+                <button style={S.iconBtn} onClick={() => setEditStaff(m)}>✎ Edit</button>
+                <button style={{ ...S.iconBtn, color: C.danger }} onClick={() => deleteStaff(m.id)}>Delete</button>
+              </div>
+            </div>
+
+            {/* Holiday stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 16 }}>
+              <div style={{ background: C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: C.navy }}>{holidayTaken}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Days Taken</div>
+              </div>
+              <div style={{ background: C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: holidayRemaining < 5 ? C.danger : C.success }}>{holidayRemaining}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Days Remaining</div>
+              </div>
+              <div style={{ background: sickDays > 5 ? C.dangerBg : C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${sickDays > 5 ? C.danger + "44" : C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: sickDays > 5 ? C.danger : C.textMid }}>{sickDays}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Sick Days (all time)</div>
+              </div>
+              <div style={{ background: C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: C.gold }}>{HOLIDAY_ALLOWANCE}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Total Allowance</div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textLight, marginBottom: 4 }}>
+                <span>Holiday used this year</span><span>{pct}%</span>
+              </div>
+              <div style={{ height: 8, background: C.border, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(pct, 100)}%`, background: pct > 90 ? C.danger : pct > 70 ? C.warn : C.success, borderRadius: 4, transition: "width .3s" }} />
+              </div>
+            </div>
+
+            {/* Holiday entries */}
+            {holidayEntries.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Holiday Records</div>
+                {holidayEntries.sort((a, b) => new Date(b.from) - new Date(a.from)).map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.borderLight}`, fontSize: 13 }}>
+                    <span style={{ background: C.successBg, color: C.success, border: `1px solid #90d0a0`, borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Holiday</span>
+                    <span style={{ color: C.text }}>{fmt(e.from)} — {fmt(e.to)}</span>
+                    {e.notes && <span style={{ color: C.textLight, fontSize: 12, flex: 1 }}>{e.notes}</span>}
+                    <span style={{ color: C.navy, fontWeight: 600, whiteSpace: "nowrap" }}>{e.days} day{e.days !== 1 ? "s" : ""}</span>
+                    <button style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 12 }} onClick={() => deleteEntry(m.id, e.id)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Sickness entries */}
+            {sickEntries.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.danger, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Sickness Records</div>
+                {sickEntries.sort((a, b) => new Date(b.from) - new Date(a.from)).map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.borderLight}`, fontSize: 13 }}>
+                    <span style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}44`, borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Sickness</span>
+                    <span style={{ color: C.text }}>{fmt(e.from)} — {fmt(e.to)}</span>
+                    {e.notes && <span style={{ color: C.textLight, fontSize: 12, flex: 1 }}>{e.notes}</span>}
+                    <span style={{ color: C.danger, fontWeight: 600, whiteSpace: "nowrap" }}>{e.days} day{e.days !== 1 ? "s" : ""}</span>
+                    <button style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 12 }} onClick={() => deleteEntry(m.id, e.id)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Add/Edit employee modal */}
+      {editStaff && (
+        <Overlay onClose={() => setEditStaff(null)}>
+          <div style={{ maxWidth: 400 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.navy, marginBottom: 16 }}>{editStaff.id ? "Edit Employee" : "Add Employee"}</div>
+            <FF label="Full Name"><input style={S.inp} value={editStaff.name} onChange={e => setEditStaff(p => ({ ...p, name: e.target.value }))} /></FF>
+            <FF label="Role / Job Title"><input style={S.inp} value={editStaff.role || ""} onChange={e => setEditStaff(p => ({ ...p, role: e.target.value }))} /></FF>
+            <FF label="Start Date"><input type="date" style={S.inp} value={editStaff.startDate || ""} onChange={e => setEditStaff(p => ({ ...p, startDate: e.target.value }))} /></FF>
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <Btn primary onClick={() => saveStaffMember(editStaff)}>Save</Btn>
+              <Btn ghost onClick={() => setEditStaff(null)}>Cancel</Btn>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* Add leave modal */}
+      {addLeave && (
+        <Overlay onClose={() => setAddLeave(null)}>
+          <AddLeaveForm staffName={addLeave.staffName} onSave={entry => saveLeave(addLeave.staffId, entry)} onCancel={() => setAddLeave(null)} />
+        </Overlay>
+      )}
+    </div>
+  );
+}
+
+function AddLeaveForm({ staffName, onSave, onCancel }) {
+  const [type, setType] = useState("holiday");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [notes, setNotes] = useState("");
+
+  function calcDays(f, t) {
+    if (!f || !t) return 0;
+    let count = 0;
+    const cur = new Date(f);
+    const end = new Date(t);
+    while (cur <= end) {
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) count++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return count;
+  }
+
+  const days = calcDays(from, to);
+
+  return (
+    <div style={{ maxWidth: 420 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.navy, marginBottom: 4 }}>Add Leave Record</div>
+      <div style={{ fontSize: 13, color: C.textLight, marginBottom: 16 }}>For: <strong>{staffName}</strong></div>
+      <FF label="Type">
+        <div style={{ display: "flex", gap: 8 }}>
+          {[["holiday", "🌴 Holiday"], ["sickness", "🤒 Sickness"]].map(([v, label]) => (
+            <button key={v} style={{ background: type === v ? C.navy : C.white, color: type === v ? C.white : C.textMid, border: `1px solid ${type === v ? C.navy : C.border}`, borderRadius: 20, padding: "6px 16px", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }} onClick={() => setType(v)}>{label}</button>
+          ))}
+        </div>
+      </FF>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <FF label="From"><input type="date" style={S.inp} value={from} onChange={e => setFrom(e.target.value)} /></FF>
+        <FF label="To"><input type="date" style={S.inp} value={to} onChange={e => setTo(e.target.value)} /></FF>
+      </div>
+      {days > 0 && <div style={{ background: type === "holiday" ? C.successBg : C.dangerBg, border: `1px solid ${type === "holiday" ? "#90d0a0" : C.danger + "44"}`, borderRadius: 6, padding: "8px 14px", fontSize: 13, fontWeight: 600, color: type === "holiday" ? C.success : C.danger, marginBottom: 12 }}>{days} working day{days !== 1 ? "s" : ""} {type === "holiday" ? "(will be deducted from allowance)" : "(sickness — unpaid)"}</div>}
+      <FF label="Notes (optional)"><input style={S.inp} value={notes} onChange={e => setNotes(e.target.value)} placeholder={type === "holiday" ? "e.g. pre-approved, annual leave" : "e.g. back pain, flu"} /></FF>
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <Btn primary onClick={() => onSave({ type, from, to, notes, days })} disabled={!from || !to || days === 0}>Save Record</Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
 
 // ── SMALL COMPONENTS ──────────────────────────────────────────────────────────
 function SPill({s,large}){const sc=SC[s]||SC["Invoiced"];return<span style={{background:sc.bg,color:sc.color,border:`1px solid ${sc.border}`,borderRadius:20,padding:large?"5px 14px":"3px 10px",fontSize:large?13:11,fontWeight:600,whiteSpace:"nowrap"}}>{s}</span>;}
