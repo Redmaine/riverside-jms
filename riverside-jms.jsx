@@ -1178,13 +1178,22 @@ function CustomerDetail({ customer, jobs, onClose, onEdit, onJobClick }) {
 }
 
 function Dashboard({ jobs, onJobClick }) {
+  const [filterStatus, setFilterStatus] = useState(null);
+
   const pipeline = jobs.filter(j => j.status === "In Production").reduce((a, j) => a + lineTotal(j.lines), 0);
   const overdue = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date()).length;
   const awaitingInvoice = jobs.filter(j => j.status === "Ready to Despatch").length;
   const tomorrowStr = addDays(todayStr(), 1);
   const dueTomorrow = jobs.filter(j => j.due_date === tomorrowStr && !["Ready to Despatch", "Invoiced"].includes(j.status)).length;
   const statuses = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
-  const recentJobs = [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 10);
+
+  const displayJobs = filterStatus
+    ? jobs.filter(j => j.status === filterStatus)
+    : [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 10);
+
+  const filteredValue = filterStatus
+    ? jobs.filter(j => j.status === filterStatus).reduce((a, j) => a + lineTotal(j.lines), 0)
+    : null;
 
   return (
     <div>
@@ -1202,15 +1211,34 @@ function Dashboard({ jobs, onJobClick }) {
         ))}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 24 }}>
-        {statuses.map(s => (
-          <div key={s} style={{ background: C.navy, color: C.white, borderRadius: 8, padding: "12px 14px", textAlign: "center" }}>
-            <div style={{ fontSize: 28, fontWeight: 900 }}>{jobs.filter(j => j.status === s).length}</div>
-            <div style={{ fontSize: 10, opacity: 0.75, marginTop: 2 }}>{s}</div>
-          </div>
-        ))}
+        {statuses.map(s => {
+          const active = filterStatus === s;
+          return (
+            <div key={s} onClick={() => setFilterStatus(active ? null : s)} style={{
+              background: active ? C.accent : C.navy, color: C.white, borderRadius: 8, padding: "12px 14px",
+              textAlign: "center", cursor: "pointer", border: active ? `3px solid ${C.white}` : "3px solid transparent",
+              boxShadow: active ? "0 0 0 2px " + C.accent : "none", transition: "all 0.15s"
+            }}>
+              <div style={{ fontSize: 28, fontWeight: 900 }}>{jobs.filter(j => j.status === s).length}</div>
+              <div style={{ fontSize: 10, opacity: 0.85, marginTop: 2 }}>{s}</div>
+            </div>
+          );
+        })}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.textLight, marginBottom: 10 }}>RECENT JOBS</div>
-      {recentJobs.map(j => {
+
+      {filterStatus ? (
+        <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>
+            {filterStatus.toUpperCase()} — {displayJobs.length} job{displayJobs.length !== 1 ? "s" : ""}
+            {filteredValue > 0 && <span style={{ marginLeft: 12, color: C.accent }}>Total: {fmt(filteredValue)}</span>}
+          </div>
+          <button onClick={() => setFilterStatus(null)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontSize: 12, color: C.textLight }}>✕ Clear filter</button>
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.textLight, marginBottom: 10 }}>RECENT JOBS</div>
+      )}
+
+      {displayJobs.map(j => {
         const isOverdue = j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date();
         return (
           <div key={j.id} onClick={() => onJobClick(j)}
