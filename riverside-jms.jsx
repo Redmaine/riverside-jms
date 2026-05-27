@@ -374,7 +374,7 @@ function StagesEditor({ stages, setStages }) {
   );
 }
 
-function FileAttachments({ jobId, jobRef, toast }) {
+function FileAttachments({ jobId, jobRef, toast, onDrawingUpload }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [category, setCategory] = useState("Drawing");
@@ -388,6 +388,11 @@ function FileAttachments({ jobId, jobRef, toast }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const extractDrawingNumber = (filename) => {
+    // Remove file extension and common suffixes to get drawing number
+    return filename.replace(/\.[^/.]+$/, "").replace(/[_-]?(rev|revision|v|ver)\s*\d+$/i, "").trim();
+  };
+
   const handleFile = async (file) => {
     if (!file) return;
     setUploading(true);
@@ -397,6 +402,11 @@ function FileAttachments({ jobId, jobRef, toast }) {
       if (upErr) throw upErr;
       await supabase.from("job_files").insert({ job_id: jobId, job_ref: jobRef, file_name: file.name, file_path: path, category, file_type: file.type });
       toast("File attached");
+      // If it's a drawing, offer to auto-populate drawing number
+      if (category === "Drawing" && onDrawingUpload) {
+        const suggested = extractDrawingNumber(file.name);
+        onDrawingUpload(suggested);
+      }
       load();
     } catch (err) { toast("Upload failed: " + err.message, "error"); }
     setUploading(false);
@@ -938,7 +948,13 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>ATTACHED FILES</div>
-        <FileAttachments jobId={job.id} jobRef={job.job_ref} toast={toast} />
+        <FileAttachments jobId={job.id} jobRef={job.job_ref} toast={toast} onDrawingUpload={async (suggested) => {
+          if (!job.drawing_number || window.confirm(`Set drawing number to "${suggested}"?`)) {
+            await supabase.from("jobs").update({ drawing_number: suggested, drawing_attached: true }).eq("id", job.id);
+            setJob(j => ({ ...j, drawing_number: suggested, drawing_attached: true }));
+            onRefresh();
+          }
+        }} />
       </div>
 
       {showDN && (
