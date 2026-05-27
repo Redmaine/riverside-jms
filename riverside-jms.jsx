@@ -328,7 +328,7 @@ function LinesEditor({ lines, setLines, allJobs }) {
             <input value={l.desc || ""} onChange={e => { upd(i, "desc", e.target.value); setActiveDesc(i); }}
               onFocus={() => setActiveDesc(i)} onBlur={() => setTimeout(() => setActiveDesc(null), 200)}
               placeholder="Description" style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, boxSizing: "border-box" }} />
-            {activeDesc === i && <PriceSuggestions desc={l.desc} allJobs={allJobs} onSelect={s => { upd(i, "price", s.price); upd(i, "qty", s.qty); setActiveDesc(null); }} />}
+            {activeDesc === i && <PriceSuggestions desc={l.desc} allJobs={allJobs} onSelect={s => { setLines(ls => ls.map((l, j) => j === i ? { ...l, desc: s.desc, price: s.price, qty: s.qty } : l)); setActiveDesc(null); }} />}
           </div>
           <input value={l.qty || ""} onChange={e => upd(i, "qty", e.target.value)} type="number" min="1"
             style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 }} />
