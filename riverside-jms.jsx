@@ -113,6 +113,7 @@ function PrintHeader() {
 }
 
 function JobSheetDoc({ job, onBack }) {
+  useEffect(() => { window.scrollTo(0, 0); }, []);
   const version = `v${(job.job_ref || "").replace(/\D/g, "") || "0"}.0`;
   const rows = [
     { label: "Our Ref", val: job.job_ref },
@@ -802,51 +803,6 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
     onRefresh();
   };
 
-  const printJobSheet = () => {
-    const win = window.open("", "_blank");
-    const version = `v${(job.job_ref || "").replace(/\D/g, "") || "0"}.0`;
-    const infoRows = [
-      ["Our Ref", job.job_ref],
-      ["Customer PO", job.po_number || "—"],
-      ["Due Date", job.due_date ? new Date(job.due_date).toLocaleDateString("en-GB") : "—"],
-      ["Drawing No", job.drawing_number || "—"],
-      ["Drawing Attached", job.drawing_attached ? "Yes" : "No"],
-      ["Status", job.status],
-      ...(job.notes ? [["Notes", job.notes]] : []),
-    ];
-    const infoHtml = infoRows.map(([l, v]) => `<tr><td style="padding:7px 12px;font-weight:700;background:#e8ecf4;width:30%;border-bottom:1px solid #d0d8e8">${l}</td><td style="padding:7px 12px;border-bottom:1px solid #d0d8e8">${v}</td></tr>`).join("");
-    const linesHtml = (job.lines || []).map((l, i) => `<tr style="background:${i%2===0?"#fff":"#f5f7fb"}"><td style="padding:8px 12px;border-bottom:1px solid #d0d8e8">${l.desc}</td><td style="padding:8px 12px;text-align:center;font-weight:700;border-bottom:1px solid #d0d8e8">${l.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #d0d8e8">${l.drawingNo||""}</td><td style="padding:8px 12px;text-align:center;border-bottom:1px solid #d0d8e8">□</td></tr>`).join("");
-    const stagesHtml = (job.stages||[]).length > 0
-      ? `<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:700;color:#1a2744;margin-bottom:8px">Production Stages</div><div style="display:flex;flex-wrap:wrap;gap:8px">${(job.stages||[]).map(s=>`<div style="border:1px solid #d0d8e8;border-radius:4px;padding:6px 14px;font-size:13px;display:flex;gap:8px;align-items:center"><span style="width:14px;height:14px;border:1px solid #999;display:inline-block;border-radius:2px"></span>${s}</div>`).join("")}</div></div>`
-      : `<div style="font-size:13px;color:#5a6a8a;margin-bottom:16px">No stages defined.</div>`;
-    win.document.write(`<!DOCTYPE html><html><head><title>Job Sheet ${job.job_ref}</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#1a2744}@media print{@page{margin:15mm}}</style></head><body>
-      <div style="border-bottom:3px solid #1a2744;padding-bottom:10px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-start">
-        <div><div style="font-size:18px;font-weight:900;color:#1a2744">${COMPANY.name}</div><div style="font-size:11px;color:#5a6a8a">${COMPANY.address}</div><div style="font-size:11px;color:#5a6a8a">${COMPANY.phone}</div></div>
-        <div style="text-align:right"><div style="font-size:11px;color:#5a6a8a;letter-spacing:1px">JOB SHEET</div><div style="font-size:28px;font-weight:900;color:#1a2744;line-height:1">${job.job_ref}</div>${job.po_number?`<div style="font-size:12px;color:#5a6a8a">Customer PO: ${job.po_number}</div>`:""}</div>
-      </div>
-      <div style="border:1px solid #d0d8e8;border-radius:4px;padding:10px 14px;margin-bottom:16px">
-        <div style="font-size:10px;font-weight:700;color:#5a6a8a;letter-spacing:1px;margin-bottom:4px">CUSTOMER</div>
-        <div style="font-size:16px;font-weight:800;color:#1a2744">${job.customer_name}</div>
-        ${job.contact_name?`<div style="font-size:13px;color:#5a6a8a">Contact: ${job.contact_name}</div>`:""}
-      </div>
-      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;border:1px solid #d0d8e8">${infoHtml}</table>
-      <div style="margin-bottom:16px">
-        <div style="font-size:13px;font-weight:700;color:#1a2744;margin-bottom:8px">Items to Manufacture</div>
-        <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #d0d8e8">
-          <thead><tr style="background:#e8ecf4"><th style="padding:7px 12px;text-align:left;font-weight:700;border-bottom:1px solid #d0d8e8">Description</th><th style="padding:7px 12px;text-align:center;width:60px;font-weight:700;border-bottom:1px solid #d0d8e8">Qty</th><th style="padding:7px 12px;text-align:left;width:120px;font-weight:700;border-bottom:1px solid #d0d8e8">Drawing No</th><th style="padding:7px 12px;text-align:center;width:90px;font-weight:700;border-bottom:1px solid #d0d8e8">Complete ✓</th></tr></thead>
-          <tbody>${linesHtml}</tbody>
-        </table>
-      </div>
-      ${stagesHtml}
-      <div style="border-top:1px solid #d0d8e8;padding-top:8px;margin-top:20px;display:flex;justify-content:space-between;font-size:11px;color:#5a6a8a">
-        <span>${COMPANY.name} · ${COMPANY.address}</span><span>Job Sheet ${job.job_ref} · ${version}</span>
-      </div>
-    </body></html>`);
-    win.document.close();
-    win.focus();
-    win.print();
-    win.onafterprint = () => win.close();
-  };
 
   const resetDespatch = async () => {
     if (!window.confirm("Reset all despatch flags? This will mark all items as not despatched.")) return;
@@ -866,6 +822,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
   const isOverdue = job.due_date && job.status !== "Invoiced" && new Date(job.due_date) < new Date();
 
+  if (view === "jobsheet") return <JobSheetDoc job={job} onBack={() => setView("detail")} />;
   if (view === "quote") return <QuoteDoc job={job} onBack={() => setView("detail")} />;
 
   if (editing) return (
@@ -999,7 +956,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
         {!["Quote", "Invoiced"].includes(job.status) && (
           <Btn onClick={() => setShowDN(!showDN)} small outline>📋 Delivery Note</Btn>
         )}
-        <Btn onClick={printJobSheet} small outline>🖨 Job Sheet</Btn>
+        <Btn onClick={() => setView("jobsheet")} small outline>🖨 Job Sheet</Btn>
         {(job.lines || []).some(l => l.despatched) && (
           <Btn onClick={resetDespatch} small danger outline>↺ Reset Despatch</Btn>
         )}
