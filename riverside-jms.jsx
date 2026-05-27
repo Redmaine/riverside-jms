@@ -113,6 +113,16 @@ function PrintHeader() {
 }
 
 function JobSheetDoc({ job, onBack }) {
+  const version = `v${(job.job_ref || "").replace(/\D/g, "") || "0"}.0`;
+  const rows = [
+    { label: "Our Ref", val: job.job_ref },
+    { label: "Customer PO", val: job.po_number || "—" },
+    { label: "Due Date", val: job.due_date ? new Date(job.due_date).toLocaleDateString("en-GB") : "—" },
+    { label: "Drawing No", val: job.drawing_number || "—" },
+    { label: "Drawing Attached", val: job.drawing_attached ? "Yes" : "No" },
+    { label: "Status", val: job.status },
+    ...(job.notes ? [{ label: "Notes", val: job.notes }] : []),
+  ];
   return (
     <div>
       <div className="no-print" style={{ padding: 16, background: C.silverLighter, display: "flex", gap: 12, alignItems: "center", marginBottom: 16, borderRadius: 6 }}>
@@ -120,73 +130,81 @@ function JobSheetDoc({ job, onBack }) {
         <Btn onClick={() => window.print()} small>🖨 Print Job Sheet</Btn>
         <span style={{ fontSize: 12, color: C.textLight }}>Back button will not appear on printed copy</span>
       </div>
-      <PrintHeader />
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+      {/* Print header */}
+      <div style={{ borderBottom: "3px solid #1a2744", paddingBottom: 10, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>JOB SHEET</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{job.customer_name}</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: C.navy }}>{COMPANY.name}</div>
+          <div style={{ fontSize: 11, color: C.textLight }}>{COMPANY.address}</div>
+          <div style={{ fontSize: 11, color: C.textLight }}>{COMPANY.phone}</div>
         </div>
-        <div style={{ textAlign: "right", fontSize: 12 }}>
-          <div><strong>Our Ref:</strong> {job.job_ref}</div>
-          {job.po_number && <div><strong>Customer PO:</strong> {job.po_number}</div>}
-          <div><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString("en-GB") : "—"}</div>
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-        <div style={{ background: C.silverLighter, borderRadius: 6, padding: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>CUSTOMER</div>
-          <div style={{ fontWeight: 700 }}>{job.customer_name}</div>
-          {job.contact_name && <div style={{ fontSize: 13 }}>{job.contact_name}</div>}
-        </div>
-        <div style={{ background: C.silverLighter, borderRadius: 6, padding: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>JOB INFO</div>
-          <div style={{ fontSize: 13 }}>Priority: <strong>{job.priority}</strong></div>
-          <div style={{ fontSize: 13 }}>Status: <strong>{job.status}</strong></div>
-          {job.drawing_number && <div style={{ fontSize: 13 }}>Drawing No: <strong>{job.drawing_number}</strong></div>}
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1 }}>JOB SHEET</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: C.navy, lineHeight: 1 }}>{job.job_ref}</div>
+          {job.po_number && <div style={{ fontSize: 12, color: C.textLight }}>Customer PO: {job.po_number}</div>}
         </div>
       </div>
+      {/* Customer box */}
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 4, padding: "10px 14px", marginBottom: 16 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, letterSpacing: 1, marginBottom: 4 }}>CUSTOMER</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{job.customer_name}</div>
+        {job.contact_name && <div style={{ fontSize: 13, color: C.textLight }}>Contact: {job.contact_name}</div>}
+      </div>
+      {/* Info table - R000025 style */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16, fontSize: 13 }}>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+              <td style={{ padding: "7px 12px", fontWeight: 700, background: C.silverLighter, width: "30%" }}>{r.label}</td>
+              <td style={{ padding: "7px 12px" }}>{r.val}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {/* Items to manufacture */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>ITEMS TO MANUFACTURE</div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Items to Manufacture</div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, border: `1px solid ${C.border}` }}>
           <thead>
-            <tr style={{ background: C.navy, color: C.white }}>
-              <th style={{ padding: "8px 10px", textAlign: "left" }}>Description</th>
-              <th style={{ padding: "8px 10px", textAlign: "center", width: 60 }}>Qty</th>
-              <th style={{ padding: "8px 10px", textAlign: "left", width: 100 }}>Drawing No</th>
-              <th style={{ padding: "8px 10px", textAlign: "center", width: 80 }}>Complete ✓</th>
+            <tr style={{ background: C.silverLighter }}>
+              <th style={{ padding: "7px 12px", textAlign: "left", fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Description</th>
+              <th style={{ padding: "7px 12px", textAlign: "center", width: 60, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Qty</th>
+              <th style={{ padding: "7px 12px", textAlign: "left", width: 120, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Drawing No</th>
+              <th style={{ padding: "7px 12px", textAlign: "center", width: 90, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Complete ✓</th>
             </tr>
           </thead>
           <tbody>
             {(job.lines || []).map((l, i) => (
-              <tr key={i} style={{ background: i % 2 === 0 ? C.white : C.silverLighter }}>
-                <td style={{ padding: "8px 10px" }}>{l.desc}</td>
-                <td style={{ padding: "8px 10px", textAlign: "center" }}>{l.qty}</td>
-                <td style={{ padding: "8px 10px" }}>{l.drawingNo || ""}</td>
-                <td style={{ padding: "8px 10px" }}></td>
+              <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                <td style={{ padding: "8px 12px" }}>{l.desc}</td>
+                <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 700 }}>{l.qty}</td>
+                <td style={{ padding: "8px 12px" }}>{l.drawingNo || ""}</td>
+                <td style={{ padding: "8px 12px", textAlign: "center" }}>□</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {job.notes && (
-        <div style={{ background: "#fffbe6", border: "1px solid #f0d060", borderRadius: 6, padding: 10, marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>NOTES</div>
-          <div style={{ fontSize: 13 }}>{job.notes}</div>
-        </div>
-      )}
-      {(job.stages || []).length > 0 && (
+      {/* Production Stages */}
+      {(job.stages || []).length > 0 ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 8 }}>PRODUCTION STAGES</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Production Stages</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {(job.stages || []).map((s, i) => (
-              <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 14px", fontSize: 13, display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ width: 16, height: 16, border: "1px solid #999", display: "inline-block", borderRadius: 2 }}></span>
+              <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 14px", fontSize: 13, display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ width: 14, height: 14, border: "1px solid #999", display: "inline-block", borderRadius: 2 }}></span>
                 {s}
               </div>
             ))}
           </div>
         </div>
+      ) : (
+        <div style={{ fontSize: 13, color: C.textLight, marginBottom: 16 }}>No stages defined.</div>
       )}
+      {/* Footer */}
+      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 20, display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textLight }}>
+        <span>{COMPANY.name} · {COMPANY.address}</span>
+        <span>Job Sheet {job.job_ref} · {version}</span>
+      </div>
     </div>
   );
 }
@@ -1464,36 +1482,48 @@ function CustomerDetail({ customer, jobs, onClose, onEdit, onJobClick }) {
 
 function Dashboard({ jobs, onJobClick }) {
   const [filterStatus, setFilterStatus] = useState(null);
+  const [filterAlert, setFilterAlert] = useState(null); // "overdue" | "invoice" | "tomorrow"
 
   const pipeline = jobs.filter(j => j.status === "In Production").reduce((a, j) => a + lineTotal(j.lines), 0);
-  const overdue = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date()).length;
-  const awaitingInvoice = jobs.filter(j => j.status === "Ready to Invoice").length;
+  const overdueJobs = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date());
+  const invoiceJobs = jobs.filter(j => j.status === "Ready to Invoice");
   const tomorrowStr = addDays(todayStr(), 1);
-  const dueTomorrow = jobs.filter(j => j.due_date === tomorrowStr && !["Fully Despatched", "Ready to Invoice", "Invoiced"].includes(j.status)).length;
+  const tomorrowJobs = jobs.filter(j => j.due_date === tomorrowStr && !["Fully Despatched", "Ready to Invoice", "Invoiced"].includes(j.status));
   const statuses = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced"];
 
-  const displayJobs = filterStatus
-    ? jobs.filter(j => j.status === filterStatus)
-    : [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 10);
+  const alertJobList = filterAlert === "overdue" ? overdueJobs : filterAlert === "invoice" ? invoiceJobs : filterAlert === "tomorrow" ? tomorrowJobs : null;
+
+  const displayJobs = alertJobList
+    ? alertJobList
+    : filterStatus
+      ? jobs.filter(j => j.status === filterStatus)
+      : [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 10);
 
   const filteredValue = filterStatus
     ? jobs.filter(j => j.status === filterStatus).reduce((a, j) => a + lineTotal(j.lines), 0)
     : null;
 
+  const alertLabels = { overdue: "OVERDUE JOBS", invoice: "READY TO INVOICE", tomorrow: "DUE TOMORROW" };
+
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, marginBottom: 24 }}>
         {[
-          { label: "In Production Value", val: fmt(pipeline), color: C.accent },
-          { label: "Overdue Jobs", val: overdue, color: overdue > 0 ? C.danger : C.success },
-          { label: "Ready to Invoice", val: awaitingInvoice, color: awaitingInvoice > 0 ? C.warning : C.success },
-          { label: "Due Tomorrow", val: dueTomorrow, color: dueTomorrow > 0 ? C.warning : C.success },
-        ].map(({ label, val, color }) => (
-          <div key={label} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, marginBottom: 4, letterSpacing: 0.5 }}>{label.toUpperCase()}</div>
-            <div style={{ fontSize: 26, fontWeight: 900, color }}>{val}</div>
-          </div>
-        ))}
+          { label: "In Production Value", val: fmt(pipeline), color: C.accent, alertKey: null },
+          { label: "Overdue Jobs", val: overdueJobs.length, color: overdueJobs.length > 0 ? C.danger : C.success, alertKey: "overdue" },
+          { label: "Ready to Invoice", val: invoiceJobs.length, color: invoiceJobs.length > 0 ? C.warning : C.success, alertKey: "invoice" },
+          { label: "Due Tomorrow", val: tomorrowJobs.length, color: tomorrowJobs.length > 0 ? C.warning : C.success, alertKey: "tomorrow" },
+        ].map(({ label, val, color, alertKey }) => {
+          const active = filterAlert === alertKey && alertKey !== null;
+          return (
+            <div key={label} onClick={() => alertKey && setFilterAlert(active ? null : alertKey)}
+              style={{ background: active ? C.navy : C.white, border: `1px solid ${active ? C.navy : C.border}`, borderRadius: 8, padding: 16, cursor: alertKey ? "pointer" : "default", transition: "all 0.15s" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: active ? "rgba(255,255,255,0.7)" : C.textLight, marginBottom: 4, letterSpacing: 0.5 }}>{label.toUpperCase()}</div>
+              <div style={{ fontSize: 26, fontWeight: 900, color: active ? C.white : color }}>{val}</div>
+              {alertKey && <div style={{ fontSize: 10, color: active ? "rgba(255,255,255,0.6)" : C.textLight, marginTop: 2 }}>{active ? "click to clear" : "click to view"}</div>}
+            </div>
+          );
+        })}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 24 }}>
         {statuses.map(s => {
@@ -1511,13 +1541,13 @@ function Dashboard({ jobs, onJobClick }) {
         })}
       </div>
 
-      {filterStatus ? (
+      {(filterStatus || filterAlert) ? (
         <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>
-            {filterStatus.toUpperCase()} — {displayJobs.length} job{displayJobs.length !== 1 ? "s" : ""}
+            {filterAlert ? alertLabels[filterAlert] : filterStatus.toUpperCase()} — {displayJobs.length} job{displayJobs.length !== 1 ? "s" : ""}
             {filteredValue > 0 && <span style={{ marginLeft: 12, color: C.accent }}>Total: {fmt(filteredValue)}</span>}
           </div>
-          <button onClick={() => setFilterStatus(null)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontSize: 12, color: C.textLight }}>✕ Clear filter</button>
+          <button onClick={() => { setFilterStatus(null); setFilterAlert(null); }} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontSize: 12, color: C.textLight }}>✕ Clear filter</button>
         </div>
       ) : (
         <div style={{ fontSize: 13, fontWeight: 700, color: C.textLight, marginBottom: 10 }}>RECENT JOBS</div>
