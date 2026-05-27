@@ -1220,14 +1220,33 @@ function HRModule({ toast }) {
       .catch(() => {});
   }, []);
 
-  const workingDays = (from, to) => {
+  const bhDates = new Set(bankHolidays.map(h => h.date));
+
+  const workingDays = (from, to, excludeBankHols = false) => {
     if (!from || !to) return 0;
     let count = 0;
     const cur = new Date(from);
     const end = new Date(to);
     while (cur <= end) {
-      const d = cur.getDay();
-      if (d !== 0 && d !== 6) count++;
+      const dow = cur.getDay();
+      const ds = cur.toISOString().split("T")[0];
+      if (dow !== 0 && dow !== 6) {
+        if (!(excludeBankHols && bhDates.has(ds))) count++;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return count;
+  };
+
+  const bankHolsInRange = (from, to) => {
+    if (!from || !to) return 0;
+    let count = 0;
+    const cur = new Date(from);
+    const end = new Date(to);
+    while (cur <= end) {
+      const dow = cur.getDay();
+      const ds = cur.toISOString().split("T")[0];
+      if (dow !== 0 && dow !== 6 && bhDates.has(ds)) count++;
       cur.setDate(cur.getDate() + 1);
     }
     return count;
@@ -1236,11 +1255,18 @@ function HRModule({ toast }) {
   const holidayTaken = (emp) => {
     const yrStart = holidayYearStart();
     return (emp.leave || []).filter(l => l.type === "Holiday" && new Date(l.from) >= yrStart)
-      .reduce((s, l) => s + workingDays(l.from, l.to), 0);
+      .reduce((s, l) => s + workingDays(l.from, l.to, true), 0);
+  };
+
+  const bankHolsTaken = (emp) => {
+    const yrStart = holidayYearStart();
+    // Count bank holidays that fall within holiday leave entries
+    return (emp.leave || []).filter(l => l.type === "Holiday" && new Date(l.from) >= yrStart)
+      .reduce((s, l) => s + bankHolsInRange(l.from, l.to), 0);
   };
 
   const sickDays = (emp) => (emp.leave || []).filter(l => l.type === "Sickness")
-    .reduce((s, l) => s + workingDays(l.from, l.to), 0);
+    .reduce((s, l) => s + workingDays(l.from, l.to, false), 0);
 
   const addEmployee = () => {
     if (!form.name.trim()) return;
@@ -1370,9 +1396,11 @@ function HRModule({ toast }) {
 
       {employees.map(emp => {
         const taken = holidayTaken(emp);
+        const bhTaken = bankHolsTaken(emp);
         const remaining = HOLIDAY_ALLOWANCE - taken;
         const sick = sickDays(emp);
         const pct = Math.min(100, (taken / HOLIDAY_ALLOWANCE) * 100);
+        const BANK_HOL_ALLOWANCE = 8;
         return (
           <div key={emp.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18, marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -1388,16 +1416,21 @@ function HRModule({ toast }) {
                 <Btn small danger onClick={() => delEmployee(emp.id)}>Remove</Btn>
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
               <div style={{ background: C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>HOLIDAY TAKEN</div>
                 <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{taken}</div>
-                <div style={{ fontSize: 11, color: C.textLight }}>of {HOLIDAY_ALLOWANCE} personal days</div>
+                <div style={{ fontSize: 11, color: C.textLight }}>of {HOLIDAY_ALLOWANCE} days</div>
               </div>
-              <div style={{ background: remaining <= 5 ? "#fff0f0" : "#e8f5e9", borderRadius: 6, padding: "10px 14px" }}>
+              <div style={{ background: remaining <= 3 ? "#fff0f0" : "#e8f5e9", borderRadius: 6, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>REMAINING</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: remaining <= 5 ? C.danger : C.success }}>{remaining}</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: remaining <= 3 ? C.danger : C.success }}>{remaining}</div>
                 <div style={{ fontSize: 11, color: C.textLight }}>days left</div>
+              </div>
+              <div style={{ background: C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>BANK HOLS USED</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: bhTaken >= BANK_HOL_ALLOWANCE ? C.danger : C.navy }}>{bhTaken}</div>
+                <div style={{ fontSize: 11, color: C.textLight }}>of {BANK_HOL_ALLOWANCE} days</div>
               </div>
               <div style={{ background: sick >= 5 ? "#fff0f0" : C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>SICK DAYS</div>
@@ -1411,14 +1444,21 @@ function HRModule({ toast }) {
             {(emp.leave || []).length > 0 && (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>LEAVE HISTORY</div>
-                {[...(emp.leave || [])].sort((a, b) => new Date(b.from) - new Date(a.from)).map(l => (
-                  <div key={l.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "5px 10px", background: l.type === "Holiday" ? "#e8f5e9" : "#fff0f0", borderRadius: 4, marginBottom: 3, fontSize: 12 }}>
-                    <span>{l.type === "Holiday" ? "🌴" : "🤒"}</span>
-                    <span style={{ flex: 1 }}>{l.type}: {new Date(l.from).toLocaleDateString("en-GB")} – {new Date(l.to).toLocaleDateString("en-GB")}</span>
-                    <span style={{ color: C.textLight }}>{workingDays(l.from, l.to)} days</span>
-                    <button onClick={() => delLeave(emp.id, l.id)} style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 16 }}>×</button>
-                  </div>
-                ))}
+                {[...(emp.leave || [])].sort((a, b) => new Date(b.from) - new Date(a.from)).map(l => {
+                  const bh = l.type === "Holiday" ? bankHolsInRange(l.from, l.to) : 0;
+                  const days = workingDays(l.from, l.to, l.type === "Holiday");
+                  return (
+                    <div key={l.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "5px 10px", background: l.type === "Holiday" ? "#e8f5e9" : "#fff0f0", borderRadius: 4, marginBottom: 3, fontSize: 12 }}>
+                      <span>{l.type === "Holiday" ? "🌴" : "🤒"}</span>
+                      <span style={{ flex: 1 }}>{l.type}: {new Date(l.from).toLocaleDateString("en-GB")} – {new Date(l.to).toLocaleDateString("en-GB")}</span>
+                      <span style={{ color: C.textLight }}>
+                        {days} day{days !== 1 ? "s" : ""}
+                        {bh > 0 && <span style={{ color: "#b8860b", marginLeft: 6 }}>+ {bh} bank hol{bh !== 1 ? "s" : ""}</span>}
+                      </span>
+                      <button onClick={() => delLeave(emp.id, l.id)} style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 16 }}>×</button>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <MonthlyHours emp={emp} bankHolidays={bankHolidays} />
