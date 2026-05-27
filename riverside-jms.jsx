@@ -845,6 +845,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
     win.document.close();
     win.focus();
     win.print();
+    win.onafterprint = () => win.close();
   };
 
   const resetDespatch = async () => {
@@ -1560,7 +1561,7 @@ function Dashboard({ jobs, onJobClick }) {
         ].map(({ label, val, color, alertKey }) => {
           const active = filterAlert === alertKey && alertKey !== null;
           return (
-            <div key={label} onClick={() => alertKey && setFilterAlert(active ? null : alertKey)}
+            <div key={label} onClick={() => { if (alertKey) { setFilterStatus(null); setFilterAlert(active ? null : alertKey); } }}
               style={{ background: active ? C.navy : C.white, border: `1px solid ${active ? C.navy : C.border}`, borderRadius: 8, padding: 16, cursor: alertKey ? "pointer" : "default", transition: "all 0.15s" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: active ? "rgba(255,255,255,0.7)" : C.textLight, marginBottom: 4, letterSpacing: 0.5 }}>{label.toUpperCase()}</div>
               <div style={{ fontSize: 26, fontWeight: 900, color: active ? C.white : color }}>{val}</div>
@@ -1573,7 +1574,7 @@ function Dashboard({ jobs, onJobClick }) {
         {statuses.map(s => {
           const active = filterStatus === s;
           return (
-            <div key={s} onClick={() => setFilterStatus(active ? null : s)} style={{
+            <div key={s} onClick={() => { setFilterAlert(null); setFilterStatus(active ? null : s); }} style={{
               background: active ? C.accent : C.navy, color: C.white, borderRadius: 8, padding: "12px 14px",
               textAlign: "center", cursor: "pointer", border: active ? `3px solid ${C.white}` : "3px solid transparent",
               boxShadow: active ? "0 0 0 2px " + C.accent : "none", transition: "all 0.15s"
