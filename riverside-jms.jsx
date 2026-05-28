@@ -1,1916 +1,2004 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Inject print CSS to hide back button
 const printStyle = document.createElement("style");
-printStyle.innerHTML = `@media print { .no-print { display: none !important; } @page { margin: 15mm; } }`;
+printStyle.innerHTML = "@media print { .no-print { display: none !important; } }";
 document.head.appendChild(printStyle);
 
 const SUPABASE_URL = "https://hzxfskdcluuluzpzevnz.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eGZza2RjbHV1bHV6cHpldm56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5ODM0NTQsImV4cCI6MjA5MzU1OTQ1NH0.D2mXA0yDZQFYBrh09kjlzV4W49f792XBqsP5TCpOo3s";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+const COMPANY = "Riverside Sheetmetal Fabrications Ltd";
+const COMPANY_SHORT = "RIVERSIDE";
+const COMPANY_ADDR = "L2 Riverside Industrial Estate, Littlehampton, West Sussex, BN17 5DF";
+const COMPANY_TEL = "01903 732486";
+const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
+const NOTIFY_EMAIL = "danny.stephb@gmail.com";
+const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
+const TARA_NAME = "tara signs";
+const VERSION = "v8.3";
+
+const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
+const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
+const PRESET_STAGES = ["Cutting", "Laser Cutting", "Welding", "Bending / Forming", "Punching", "Rolling", "Grinding", "Powder Coat", "Painting", "Assembly", "QC Check"];
+const PRIORITIES = ["Normal", "High", "Urgent", "Low"];
+const QUOTE_STATUSES = ["Pending", "Approved", "Rejected", "N/A"];
+const LASER_CUSTOMERS = ["tara signs"];
+
 const C = {
-  navy: "#1a2744", navyDark: "#111c33", navyLight: "#243560",
-  silver: "#8a9ab5", silverLight: "#c8d0e0", silverLighter: "#e8ecf4",
-  white: "#ffffff", accent: "#2e6db4", accentLight: "#3a80d2",
-  danger: "#c0392b", warning: "#e67e22", success: "#27ae60",
-  text: "#1a2744", textLight: "#5a6a8a", bg: "#f0f2f7", border: "#d0d8e8"
+  navy:"#0f2a4a", navyMid:"#1a3f6f", navyLight:"#234e86",
+  silver:"#c8d0dc", silverLight:"#e8ecf1", silverPale:"#f4f6f9",
+  white:"#ffffff", accent:"#1e5faa", gold:"#c9a84c",
+  success:"#1a7a4a", successBg:"#e8f5ee",
+  danger:"#b83030", dangerBg:"#fceaea",
+  warn:"#b86a10", warnBg:"#fef3e2",
+  purple:"#6b3fa0", purpleBg:"#f0ebfa",
+  text:"#0f1e30", textMid:"#3a4f66", textLight:"#6a7f99",
+  border:"#d0d8e4", borderLight:"#e8ecf2",
 };
 
-const COMPANY = {
-  name: "Riverside Sheetmetal Fabrications Ltd",
-  address: "L2 Riverside Industrial Estate, Littlehampton, West Sussex, BN17 5DF",
-  phone: "01903 732486",
-  email: "info@riversidesheetmetal.co.uk"
+const SC = {
+  "Quote":              {bg:"#e8ecf8", color:"#1a3a8a", border:"#b0bce8"},
+  "In Production":      {bg:"#fef3e2", color:"#7a4500", border:"#f5c060"},
+  "Part Despatched":    {bg:"#f0ebfa", color:"#6b3fa0", border:"#c9a8e8"},
+  "Ready to Despatch":  {bg:"#e8f5ee", color:"#0f5a30", border:"#6ecf9a"},
+  "Invoiced":           {bg:"#f0f0f0", color:"#555",    border:"#ccc"},
 };
 
-const fmt = (n) => `£${(Number(n) || 0).toFixed(2)}`;
-const lineTotal = (lines) => (lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
-const todayStr = () => new Date().toISOString().split("T")[0];
-const addDays = (d, n) => { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]; };
+function todayStr(){return new Date().toISOString().split("T")[0];}
+function tomorrowStr(){const d=new Date();d.setDate(d.getDate()+1);return d.toISOString().split("T")[0];}
+function fmt(d){if(!d)return"—";const[y,m,day]=d.split("-");return`${day}/${m}/${y}`;}
+function isOverdue(j){if(!j.due_date||j.status==="Invoiced")return false;return new Date(j.due_date)<new Date(todayStr());}
+function isDueTomorrow(j){if(!j.due_date||["Invoiced","Ready to Despatch"].includes(j.status))return false;return j.due_date===tomorrowStr();}
+function lineTotal(lines){return(lines||[]).reduce((a,l)=>a+(parseFloat(l.qty||1)*parseFloat(l.price||0)),0);}
+function fmtGBP(n){return"£"+parseFloat(n||0).toLocaleString("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function newLine(){return{id:"l"+Date.now()+Math.random().toString(36).slice(2),desc:"",qty:"1",price:"",delivered:false,deliveredDate:"",deliveredNote:""};}
+function newJob(){return{id:"",job_ref:"",customer_id:"",customer_name:"",contact_id:"",contact_name:"",description:"",po_number:"",status:"In Production",priority:"Normal",quote_ref:"",quote_status:"N/A",quote_date:"",lines:[newLine()],stages:[],stages_complete:{},drawing_number:"",drawing_attached:false,date_received:todayStr(),due_date:"",invoice_ref:"",notes:""};}
+function newCust(){return{id:"",name:"",contacts:[{id:"ct"+Date.now(),name:"",email:"",phone:""}],notes:""};}
 
-function useToast() {
-  const [toasts, setToasts] = useState([]);
-  const add = (msg, type = "success") => {
-    const id = Date.now();
-    setToasts(t => [...t, { id, msg, type }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
-  };
-  return { toasts, add };
+async function sendEmail(to,subject,html){
+  try{await supabase.functions.invoke("send-email",{body:{to,subject,html}});}catch(e){console.warn("Email:",e);}
 }
 
-function Toasts({ toasts }) {
-  return (
-    <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8 }}>
-      {toasts.map(t => (
-        <div key={t.id} style={{
-          background: t.type === "error" ? C.danger : C.success, color: "#fff",
-          padding: "10px 18px", borderRadius: 6, fontSize: 14, fontWeight: 600,
-          boxShadow: "0 4px 16px rgba(0,0,0,0.2)", maxWidth: 320
-        }}>{t.msg}</div>
+function buildMondayHTML(jobs){
+  const rows=jobs.map(j=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">${j.job_ref}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${j.customer_name||""}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${j.po_number||"—"}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${j.description||""}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;color:${isOverdue(j)?"#b83030":"#333"}">${fmt(j.due_date)}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">${fmtGBP(lineTotal(j.lines))}</td></tr>`).join("");
+  return`<div style="font-family:Arial,sans-serif;max-width:700px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2><p style="color:#c8d0dc;margin:4px 0 0;font-size:13px">Monday Morning Production Report — ${fmt(todayStr())}</p></div><div style="padding:20px 24px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0f2a4a"><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Job Ref</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Customer</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">PO</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Description</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Due</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Value</th></tr></thead><tbody>${rows}</tbody></table><p style="color:#6a7f99;font-size:12px;margin-top:20px">${jobs.length} job${jobs.length!==1?"s":""} · Total: ${fmtGBP(jobs.reduce((a,j)=>a+lineTotal(j.lines),0))}</p></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR}</p></div></div>`;
+}
+
+function buildTaraHTML(jobs){
+  const rows=jobs.map(j=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">${j.job_ref}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${j.po_number||"—"}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${j.description||""}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;color:${isOverdue(j)?"#b83030":"#333"};font-weight:${isOverdue(j)?700:400}">${fmt(j.due_date)}${isOverdue(j)?" ⚠ OVERDUE":""}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${j.priority}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">${fmtGBP(lineTotal(j.lines))}</td></tr>`).join("");
+  const total=jobs.reduce((a,j)=>a+lineTotal(j.lines),0);
+  return`<div style="font-family:Arial,sans-serif;max-width:700px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2><p style="color:#c8d0dc;margin:4px 0 0;font-size:13px">Tara Signs — Outstanding Jobs — ${fmt(todayStr())}</p></div><div style="padding:20px 24px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0f2a4a"><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Job Ref</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">PO Number</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Description</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Due Date</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Priority</th><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Value</th></tr></thead><tbody>${rows}</tbody></table><p style="color:#6a7f99;font-size:12px;margin-top:20px">${jobs.length} job${jobs.length!==1?"s":""} in production · Total: ${fmtGBP(total)}</p></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR}</p></div></div>`;
+}
+
+function useTaraDailyEmail(jobs){
+  useEffect(()=>{
+    const check=async()=>{
+      const now=new Date();
+      const isEightAM=now.getHours()===8&&now.getMinutes()<5;
+      if(!isEightAM)return;
+      const key="rsm_tara_daily_"+todayStr();
+      if(localStorage.getItem(key))return;
+      const taraJobs=jobs.filter(j=>j.customer_name?.toLowerCase().includes(TARA_NAME)&&j.status==="In Production");
+      if(taraJobs.length>0){
+        await sendEmail(TARA_DAILY_EMAIL,`Tara Signs — ${taraJobs.length} job${taraJobs.length!==1?"s":""} in production — ${fmt(todayStr())}`,buildTaraHTML(taraJobs));
+        localStorage.setItem(key,"sent");
+      }
+    };
+    check();
+    const t=setInterval(check,60000);
+    return()=>clearInterval(t);
+  },[jobs]);
+}
+
+function useMondayReport(jobs){
+  useEffect(()=>{
+    const check=async()=>{
+      const now=new Date();
+      if(now.getDay()===1&&now.getHours()===9&&now.getMinutes()<5){
+        const key=todayStr();
+        if(localStorage.getItem("rsm_monday")!==key){
+          const inProd=jobs.filter(j=>j.status==="In Production");
+          if(inProd.length>0){
+            await sendEmail(NOTIFY_EMAIL,`Monday Production Report — ${fmt(key)}`,buildMondayHTML(inProd));
+            localStorage.setItem("rsm_monday",key);
+            window.__mondayJobs=inProd;
+            window.dispatchEvent(new Event("mondayprint"));
+          }
+        }
+      }
+    };
+    check();
+    const t=setInterval(check,60000);
+    return()=>clearInterval(t);
+  },[jobs]);
+}
+
+export default function App(){
+  const[jobs,setJobs]=useState([]);
+  const[customers,setCustomers]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[view,setView]=useState("dashboard");
+  const[jobModal,setJobModal]=useState(null);
+  const[editJob,setEditJob]=useState(null);
+  const[editCust,setEditCust]=useState(null);
+  const[filterStatus,setFilterStatus]=useState("All");
+  const[search,setSearch]=useState("");
+  const[priceSearch,setPriceSearch]=useState("");
+  const[toast,setToast]=useState(null);
+  const[printJob,setPrintJob]=useState(null);
+  const[printQuote,setPrintQuote]=useState(null);
+  const[deliveryJob,setDeliveryJob]=useState(null);
+  const[mondayPrint,setMondayPrint]=useState(null);
+  const[stageInput,setStageInput]=useState("");
+  const[confirmDel,setConfirmDel]=useState(null);
+  const[laserPrompt,setLaserPrompt]=useState(null);
+  const[custHistory,setCustHistory]=useState(null);
+  const[custDetail,setCustDetail]=useState(null);
+  const[invoicePrompt,setInvoicePrompt]=useState(null);
+  const[partDelivery,setPartDelivery]=useState(null);
+  const[emailDelivery,setEmailDelivery]=useState(null);
+  const[deliveryOptions,setDeliveryOptions]=useState(null);
+  const[deliveryFlow,setDeliveryFlow]=useState(null);
+  const[staff,setStaff]=useState([]);
+  const[hrModal,setHrModal]=useState(null);
+  const[addLeave,setAddLeave]=useState(null);
+
+  useEffect(()=>{
+    loadAll();
+    const js=supabase.channel("jch").on("postgres_changes",{event:"*",schema:"public",table:"jobs"},()=>loadJobs()).subscribe();
+    const cs=supabase.channel("cch").on("postgres_changes",{event:"*",schema:"public",table:"customers"},()=>loadCustomers()).subscribe();
+    const om=()=>{if(window.__mondayJobs)setMondayPrint(window.__mondayJobs);};
+    window.addEventListener("mondayprint",om);
+    return()=>{js.unsubscribe();cs.unsubscribe();window.removeEventListener("mondayprint",om);};
+  },[]);
+
+  async function loadAll(){setLoading(true);await Promise.all([loadJobs(),loadCustomers(),loadStaff()]);setLoading(false);}
+  async function loadStaff(){const{data}=await supabase.from("staff").select("*").order("name");if(data)setStaff(data);}
+  async function loadJobs(){const{data}=await supabase.from("jobs").select("*").order("created_at",{ascending:false});if(data)setJobs(data);}
+  async function loadCustomers(){const{data}=await supabase.from("customers").select("*").order("name");if(data)setCustomers(data);}
+  useMondayReport(jobs);
+  useTaraDailyEmail(jobs);
+
+  // Quote expiry email — day 6 after quote raised
+  useEffect(()=>{
+    const checkQuoteExpiry = async () => {
+      const today = todayStr();
+      const lastCheck = localStorage.getItem("rsm_quote_expiry_check");
+      if(lastCheck === today) return;
+      const quotes = jobs.filter(j => j.status === "Quote" && j.quote_status === "Pending" && j.date_received);
+      for(const q of quotes){
+        const raised = new Date(q.date_received);
+        const day6 = new Date(raised); day6.setDate(raised.getDate()+6);
+        const expiry = new Date(raised); expiry.setDate(raised.getDate()+7);
+        const day6str = day6.toISOString().split("T")[0];
+        if(day6str === today){
+          const cust = customers.find(c=>c.id===q.customer_id);
+          const contact = (cust?.contacts||[]).find(ct=>ct.id===q.contact_id) || (cust?.contacts||[])[0];
+          if(contact?.email){
+            const expiryFmt = fmt(expiry.toISOString().split("T")[0]);
+            const html = `<div style="font-family:Arial,sans-serif;max-width:600px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2></div><div style="padding:24px"><p style="font-size:14px;color:#333">Dear ${contact.name},</p><p style="font-size:14px;color:#333">We wanted to follow up on our quote <strong>${q.job_ref}</strong>${q.po_number?" (your ref: "+q.po_number+")":""} sent on ${fmt(q.date_received)}.</p><p style="font-size:14px;color:#333">This quote is due to expire tomorrow on <strong>${expiryFmt}</strong>. If you would like to proceed or have any questions, please don't hesitate to get in touch.</p><p style="font-size:14px;color:#333">We look forward to hearing from you.</p><p style="font-size:14px;color:#333">Kind regards,<br/><strong>${COMPANY}</strong><br/>${COMPANY_TEL}<br/>${COMPANY_EMAIL}</p></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR}</p></div></div>`;
+            await sendEmail(contact.email, `Quote ${q.job_ref} expiring tomorrow — ${COMPANY}`, html);
+          }
+        }
+      }
+      localStorage.setItem("rsm_quote_expiry_check", today);
+    };
+    if(jobs.length > 0 && customers.length > 0) checkQuoteExpiry();
+  },[jobs, customers]);
+
+  function toast_(msg,type="ok"){setToast({msg,type});setTimeout(()=>setToast(null),4000);}
+
+  async function getNextRef(){
+    const{data}=await supabase.rpc("increment_job_counter").single();
+    if(data)return"R"+String(data).padStart(6,"0");
+    const nums=jobs.map(j=>{const m=j.job_ref?.match(/R0*(\d+)/);return m?parseInt(m[1]):0;});
+    return"R"+String((nums.length>0?Math.max(...nums):0)+1).padStart(6,"0");
+  }
+
+  async function saveJob(j){
+    const isNew=!j.id;
+    let ref=j.job_ref;
+    if(isNew)ref=await getNextRef();
+    const payload={job_ref:ref,customer_id:j.customer_id||null,customer_name:j.customer_name,contact_id:j.contact_id,contact_name:j.contact_name,description:j.description,po_number:j.po_number,status:j.status,priority:j.priority,quote_ref:j.quote_ref,quote_status:j.quote_status,quote_date:j.quote_date||null,lines:j.lines||[],stages:j.stages||[],stages_complete:j.stages_complete||{},drawing_number:j.drawing_number,drawing_attached:j.drawing_attached||false,date_received:j.date_received||todayStr(),due_date:j.due_date||null,invoice_ref:j.invoice_ref,notes:j.notes};
+    if(isNew){
+      const{error}=await supabase.from("jobs").insert([payload]);
+      if(error){toast_("Error: "+error.message,"warn");return;}
+      exportJobCSV({...payload,job_ref:ref});
+    }else{
+      const{error}=await supabase.from("jobs").update(payload).eq("id",j.id);
+      if(error){toast_("Error: "+error.message,"warn");return;}
+    }
+    await loadJobs();
+    toast_(isNew?`Job ${ref} created`:`Job ${j.job_ref} saved`);
+    setEditJob(null);
+  }
+
+  async function addToPrintQueue(job){
+    try{
+      await supabase.from("print_queue").insert([{job_id:job.id,job_ref:job.job_ref,printed:false}]);
+      toast_("Drawing sent to office printer");
+    }catch(e){console.warn("Print queue error:",e);}
+  }
+
+  async function deleteJob(id){
+    await supabase.from("jobs").delete().eq("id",id);
+    await loadJobs();
+    setJobModal(null);setConfirmDel(null);
+    toast_("Job deleted","warn");
+  }
+
+  async function advanceJob(job){
+    const idx=STATUS_FLOW.indexOf(job.status);
+    if(idx>=STATUS_FLOW.length-1)return;
+    const next=STATUS_FLOW[idx+1];
+    // If moving to Invoiced, prompt for invoice ref
+    if(next==="Invoiced"){setInvoicePrompt(job);return;}
+    const updated={...job,status:next};
+    await supabase.from("jobs").update({status:next}).eq("id",job.id);
+    await loadJobs();
+    setJobModal(updated);
+    toast_(`Moved to: ${next}`);
+    if(next==="Ready to Despatch")setTimeout(()=>setDeliveryJob(updated),300);
+  }
+
+  async function markInvoiced(job,invoiceRef){
+    await supabase.from("jobs").update({status:"Invoiced",invoice_ref:invoiceRef}).eq("id",job.id);
+    await loadJobs();
+    setJobModal(null);setInvoicePrompt(null);
+    toast_(`Job ${job.job_ref} invoiced — Ref: ${invoiceRef}`);
+  }
+
+  async function toggleStage(job,stage){
+    const sc={...job.stages_complete,[stage]:!job.stages_complete?.[stage]};
+    await supabase.from("jobs").update({stages_complete:sc}).eq("id",job.id);
+    const u={...job,stages_complete:sc};
+    setJobs(p=>p.map(j=>j.id===job.id?u:j));setJobModal(u);
+  }
+  async function addStage(job,s){
+    const stage=(s||stageInput).trim();
+    if(!stage||job.stages?.includes(stage))return;
+    const stages=[...(job.stages||[]),stage];
+    await supabase.from("jobs").update({stages}).eq("id",job.id);
+    const u={...job,stages};setJobs(p=>p.map(j=>j.id===job.id?u:j));setJobModal(u);setStageInput("");
+  }
+  async function removeStage(job,stage){
+    const sc={...job.stages_complete};delete sc[stage];
+    const stages=job.stages.filter(s=>s!==stage);
+    await supabase.from("jobs").update({stages,stages_complete:sc}).eq("id",job.id);
+    const u={...job,stages,stages_complete:sc};setJobs(p=>p.map(j=>j.id===job.id?u:j));setJobModal(u);
+  }
+
+  async function savePartDelivery(job,selectedLineIds,note,isFinal){
+    const now=todayStr();
+    const updatedLines=job.lines.map(l=>selectedLineIds.includes(l.id)?{...l,delivered:true,deliveredDate:now,deliveredNote:note}:l);
+    const newStatus=isFinal?"Ready to Despatch":"Part Despatched";
+    await supabase.from("jobs").update({lines:updatedLines,status:newStatus}).eq("id",job.id);
+    await loadJobs();
+    const updated={...job,lines:updatedLines,status:newStatus};
+    setPartDelivery(null);
+    toast_(`Delivery recorded — job now: ${newStatus}`);
+    // Show delivery options - print or email
+    const linesToPrint=isFinal?updatedLines:updatedLines.filter(l=>selectedLineIds.includes(l.id));
+    const deliveryJobData={...updated,lines:linesToPrint,_isFinal:isFinal,_prevDelivered:job.lines.filter(l=>l.delivered)};
+    setDeliveryOptions({job:deliveryJobData,onPrint:()=>{setDeliveryJob(deliveryJobData);setDeliveryOptions(null);},onEmail:()=>{setEmailDelivery(deliveryJobData);setDeliveryOptions(null);}});
+  }
+
+  async function saveCust(c){
+    const isNew=!c.id;
+    const payload={name:c.name,contacts:c.contacts||[],notes:c.notes||""};
+    if(isNew)await supabase.from("customers").insert([payload]);
+    else await supabase.from("customers").update(payload).eq("id",c.id);
+    await loadCustomers();
+    toast_(isNew?`${c.name} added`:`${c.name} updated`);
+    setEditCust(null);
+  }
+
+  function exportJobCSV(job){
+    const hdr=["Job Ref","Customer","Contact","PO Number","Description","Status","Priority","Received","Due","Total Value","Drawing No","Invoice Ref","Notes"];
+    const row=[job.job_ref,job.customer_name,job.contact_name,job.po_number,job.description,job.status,job.priority,fmt(job.date_received),fmt(job.due_date),fmtGBP(lineTotal(job.lines)),job.drawing_number,job.invoice_ref,job.notes];
+    const csv=[hdr,row].map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`${job.job_ref}_${todayStr()}.csv`;a.click();
+  }
+  function exportAllCSV(jobList){
+    const hdr=["Job Ref","Customer","Contact","PO Number","Description","Status","Priority","Received","Due","Total Value","Drawing No","Invoice Ref","Notes"];
+    const rows=jobList.map(j=>[j.job_ref,j.customer_name,j.contact_name,j.po_number,j.description,j.status,j.priority,fmt(j.date_received),fmt(j.due_date),fmtGBP(lineTotal(j.lines)),j.drawing_number,j.invoice_ref,j.notes]);
+    const csv=[hdr,...rows].map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`riverside_jobs_${todayStr()}.csv`;a.click();
+    toast_("CSV exported");
+  }
+
+  async function sendMondayReport(){
+    const inProd=jobs.filter(j=>j.status==="In Production");
+    if(inProd.length===0){toast_("No jobs in production","warn");return;}
+    await sendEmail(NOTIFY_EMAIL,`Production Report — ${fmt(todayStr())}`,buildMondayHTML(inProd));
+    setMondayPrint(inProd);
+    toast_("Report sent to Danny & printing");
+  }
+
+  const dueTomorrow=jobs.filter(j=>isDueTomorrow(j));
+  const overdue=jobs.filter(j=>isOverdue(j));
+  const uninvoiced=jobs.filter(j=>j.status==="Ready to Despatch");
+  const counts=ALL_STATUSES.reduce((a,s)=>({...a,[s]:jobs.filter(j=>j.status===s).length}),{});
+  const pipeline=jobs.filter(j=>j.status==="In Production").reduce((a,j)=>a+lineTotal(j.lines),0);
+
+  const filtered=useMemo(()=>jobs.filter(j=>{
+    const ms=filterStatus==="All"||j.status===filterStatus;
+    const q=search.toLowerCase();
+    const mq=!q||[j.job_ref,j.customer_name,j.description,j.po_number].some(f=>f?.toLowerCase().includes(q));
+    return ms&&mq;
+  }),[jobs,filterStatus,search]);
+
+  const priceResults=useMemo(()=>{
+    if(!priceSearch.trim())return[];
+    const q=priceSearch.toLowerCase();
+    const out=[];
+    jobs.forEach(j=>(j.lines||[]).forEach(l=>{
+      if(l.desc?.toLowerCase().includes(q))
+        out.push({job_ref:j.job_ref,customer:j.customer_name,date:j.date_received,desc:l.desc,qty:l.qty,price:l.price,total:fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))});
+    }));
+    return out;
+  },[priceSearch,jobs]);
+
+  if(printQuote)return<QuoteDoc job={printQuote} onClose={()=>setPrintQuote(null)}/>;
+  if(printJob)return<PrintSheet job={printJob} onClose={()=>setPrintJob(null)}/>;
+  if(deliveryJob)return<DeliveryNote job={deliveryJob} onClose={()=>setDeliveryJob(null)}/>;
+  if(mondayPrint)return<MondayReport jobs={mondayPrint} onClose={()=>setMondayPrint(null)}/>;
+
+  return(
+    <div style={{minHeight:"100vh",background:C.silverPale,fontFamily:"'Trebuchet MS','Segoe UI',sans-serif",color:C.text}}>
+      {toast&&<div style={{position:"fixed",bottom:24,right:24,color:"#fff",fontWeight:700,fontSize:13,padding:"10px 20px",borderRadius:6,zIndex:9999,background:toast.type==="warn"?C.danger:C.success,boxShadow:"0 4px 20px #0004"}}>{toast.msg}</div>}
+
+      {dueTomorrow.length>0&&<div style={{background:C.warnBg,borderBottom:`2px solid ${C.gold}`,padding:"8px 24px",display:"flex",alignItems:"center",gap:12}}><span style={{fontWeight:700,fontSize:13,color:C.warn}}>⏰ Reminder:</span><span style={{fontSize:13,color:C.warn}}>{dueTomorrow.length} job{dueTomorrow.length>1?"s":""} due tomorrow not yet ready: {dueTomorrow.map(j=>j.job_ref).join(", ")}</span></div>}
+
+      {/* INVOICE PROMPT */}
+      {invoicePrompt&&(
+        <Overlay onClose={()=>setInvoicePrompt(null)}>
+          <InvoicePrompt job={invoicePrompt} onConfirm={markInvoiced} onCancel={()=>setInvoicePrompt(null)}/>
+        </Overlay>
+      )}
+
+      {/* CONFIRM DELETE */}
+      {confirmDel&&(
+        <Overlay onClose={()=>setConfirmDel(null)}>
+          <div style={{maxWidth:360}}>
+            <div style={{fontSize:17,fontWeight:700,color:C.navy,marginBottom:10}}>Delete Job?</div>
+            <div style={{fontSize:14,color:C.textMid,lineHeight:1.6}}>Permanently delete <strong>{confirmDel.job_ref}</strong>?</div>
+            <div style={{display:"flex",gap:10,marginTop:20}}><Btn danger onClick={()=>deleteJob(confirmDel.id)}>Delete</Btn><Btn ghost onClick={()=>setConfirmDel(null)}>Cancel</Btn></div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* LASER PROMPT */}
+      {laserPrompt&&(
+        <Overlay onClose={()=>{saveJob(laserPrompt.job);setLaserPrompt(null);}}>
+          <div style={{maxWidth:380,textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:12}}>✂️</div>
+            <div style={{fontSize:17,fontWeight:700,color:C.navy,marginBottom:10}}>Laser Cutting Required?</div>
+            <div style={{fontSize:14,color:C.textMid,marginBottom:20}}>This job is for <strong>{laserPrompt.job.customer_name}</strong> — add Laser Cutting to production stages?</div>
+            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <Btn primary onClick={()=>{const j={...laserPrompt.job,stages:["Laser Cutting",...(laserPrompt.job.stages||[]).filter(s=>s!=="Laser Cutting")]};saveJob(j);setLaserPrompt(null);}}>Yes — Add Laser Cutting</Btn>
+              <Btn ghost onClick={()=>{saveJob(laserPrompt.job);setLaserPrompt(null);}}>No Thanks</Btn>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* PART DELIVERY */}
+      {partDelivery&&(
+        <Overlay onClose={()=>setPartDelivery(null)}>
+          <PartDeliveryForm job={partDelivery.job} type={partDelivery.type} onConfirm={savePartDelivery} onCancel={()=>setPartDelivery(null)}/>
+        </Overlay>
+      )}
+
+      {deliveryOptions&&(
+        <Overlay onClose={()=>{setDeliveryOptions(null);setJobModal(deliveryOptions.job);}}>
+          <div style={{maxWidth:400,textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:12}}>📋</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:8}}>Delivery Note</div>
+            <div style={{fontSize:14,color:C.textMid,marginBottom:24}}>How would you like to send the delivery note for <strong>{deliveryOptions.job.job_ref}</strong>?</div>
+            <div style={{display:"flex",gap:12,justifyContent:"center"}}>
+              <Btn primary onClick={deliveryOptions.onPrint}>🖨 Print (2 copies)</Btn>
+              <Btn onClick={deliveryOptions.onEmail}>✉ Email Instead</Btn>
+            </div>
+            <button style={{background:"none",border:"none",color:C.textLight,fontSize:12,cursor:"pointer",marginTop:16}} onClick={()=>{setDeliveryOptions(null);setJobModal(deliveryOptions.job);}}>Skip — I'll do this later</button>
+          </div>
+        </Overlay>
+      )}
+
+      {emailDelivery&&(
+        <Overlay onClose={()=>setEmailDelivery(null)}>
+          <EmailDeliveryForm job={emailDelivery} customers={customers} onSend={async(to,job)=>{
+            const html=buildDeliveryNoteHTML(job);
+            await sendEmail(to,`Delivery Note ${job.job_ref} — ${COMPANY}`,html);
+            toast_("Delivery note emailed to "+to);
+            setEmailDelivery(null);
+          }} onCancel={()=>setEmailDelivery(null)}/>
+        </Overlay>
+      )}
+
+      <header style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,padding:"0 24px",display:"flex",alignItems:"center",gap:20,height:62,position:"sticky",top:0,zIndex:100}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <Logo/>
+          <div>
+            <div style={{fontWeight:800,fontSize:15,letterSpacing:2,color:C.white}}>RIVERSIDE</div>
+            <div style={{fontSize:9,letterSpacing:1,color:C.silver,marginTop:1}}>Sheetmetal Fabrications Ltd · Job Management {VERSION}</div>
+          </div>
+        </div>
+        <nav style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
+          {[{k:"dashboard",l:"Dashboard"},{k:"jobs",l:"Jobs"},{k:"quotes",l:"Quotes"},{k:"customers",l:"Customers"},{k:"pricing",l:"Price Search"},{k:"alerts",l:"Alerts"},{k:"hr",l:"HR"}].map(({k,l})=>(
+            <button key={k} style={{background:"none",border:"none",color:view===k?C.white:C.silver,fontFamily:"inherit",fontSize:13,fontWeight:600,padding:"4px 14px",cursor:"pointer",borderBottom:view===k?`3px solid ${C.gold}`:"3px solid transparent",whiteSpace:"nowrap",height:62,letterSpacing:0.3,position:"relative"}} onClick={()=>setView(k)}>
+              {l}{k==="alerts"&&(uninvoiced.length+overdue.length+dueTomorrow.length>0)&&<span style={{position:"absolute",top:14,right:6,width:7,height:7,borderRadius:"50%",background:"#e84040"}}/>}
+            </button>
+          ))}
+        </nav>
+        <button style={{background:"none",border:`1px solid ${C.silver}44`,color:C.silver,fontFamily:"inherit",fontWeight:600,fontSize:12,padding:"6px 12px",cursor:"pointer",borderRadius:5,whiteSpace:"nowrap",marginRight:6}} onClick={sendMondayReport}>📋 Send Report</button>
+        <button style={{background:C.gold,color:C.navy,border:"none",fontFamily:"inherit",fontWeight:800,fontSize:13,padding:"8px 18px",cursor:"pointer",borderRadius:5,whiteSpace:"nowrap"}} onClick={()=>setEditJob(newJob())}>+ New Job</button>
+      </header>
+
+      <main style={{padding:"24px 24px 48px"}}>
+        <div style={{maxWidth:1280,margin:"0 auto"}}>
+          {loading&&<div style={{textAlign:"center",padding:"60px 0",color:C.textLight,fontSize:14}}>Loading…</div>}
+          {!loading&&<>
+
+            {/* DASHBOARD */}
+            {view==="dashboard"&&<>
+              <h1 style={S.pageH}>Dashboard</h1>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:24}}>
+                {STATUS_FLOW.map(s=>(
+                  <div key={s} style={{background:C.white,border:`1px solid ${C.border}`,borderTop:`3px solid ${SC[s].border}`,borderRadius:8,padding:"14px 16px",cursor:"pointer"}} onClick={()=>{setView("jobs");setFilterStatus(s);}}>
+                    <div style={{fontSize:28,fontWeight:800,color:SC[s].color,lineHeight:1}}>{counts[s]}</div>
+                    <div style={{fontSize:10,color:C.textLight,marginTop:4,fontWeight:600,letterSpacing:0.3}}>{s}</div>
+                  </div>
+                ))}
+                <div style={{background:C.white,border:`1px solid ${C.border}`,borderTop:`3px solid ${C.gold}`,borderRadius:8,padding:"14px 16px"}}>
+                  <div style={{fontSize:22,fontWeight:800,color:C.gold,lineHeight:1}}>{fmtGBP(pipeline)}</div>
+                  <div style={{fontSize:10,color:C.textLight,marginTop:4,fontWeight:600,letterSpacing:0.3}}>In Production Value</div>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16,marginBottom:24}}>
+                <ACard title="Overdue Jobs" count={overdue.length} color={C.danger}>{overdue.length===0?<Em>All on schedule ✓</Em>:overdue.map(j=><ARow key={j.id} job={j} onClick={()=>setJobModal(j)}><span style={{color:C.danger,fontSize:12}}>Due {fmt(j.due_date)}</span></ARow>)}</ACard>
+                <ACard title="Awaiting Invoice" count={uninvoiced.length} color={C.accent}>{uninvoiced.length===0?<Em>No outstanding invoices ✓</Em>:uninvoiced.map(j=><ARow key={j.id} job={j} onClick={()=>setJobModal(j)}><span style={{color:C.accent,fontSize:12}}>{fmtGBP(lineTotal(j.lines))}</span></ARow>)}</ACard>
+                {dueTomorrow.length>0&&<ACard title="Due Tomorrow — Not Ready" count={dueTomorrow.length} color={C.warn}>{dueTomorrow.map(j=><ARow key={j.id} job={j} onClick={()=>setJobModal(j)}><span style={{color:C.warn,fontSize:12}}>{j.status}</span></ARow>)}</ACard>}
+              </div>
+              <h2 style={S.subH}>Recent Jobs</h2>
+              <JobTable jobs={jobs.slice(0,10)} onOpen={setJobModal}/>
+            </>}
+
+            {/* JOBS */}
+            {view==="jobs"&&<>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+                <h1 style={{...S.pageH,margin:0}}>All Jobs</h1>
+                <input style={S.inp2} placeholder="Search ref, customer, PO…" value={search} onChange={e=>setSearch(e.target.value)}/>
+                <Btn onClick={()=>exportAllCSV(filtered)}>↓ Export CSV</Btn>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
+                {["All",...ALL_STATUSES].map(s=><button key={s} style={{background:filterStatus===s?C.navy:C.white,color:filterStatus===s?C.white:C.textMid,border:`1px solid ${filterStatus===s?C.navy:C.border}`,borderRadius:20,padding:"4px 14px",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>setFilterStatus(s)}>{s}</button>)}
+              </div>
+              <JobTable jobs={filtered} onOpen={setJobModal}/>
+              {filtered.length===0&&<Em center>No jobs match your search.</Em>}
+            </>}
+
+            {/* QUOTES */}
+            {view==="quotes"&&<>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+                <h1 style={{...S.pageH,margin:0}}>Quotes</h1>
+                <Btn onClick={()=>setEditJob({...newJob(),status:"Quote",quote_status:"Pending"})}>+ New Quote</Btn>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16}}>
+                {["Pending","Approved","Rejected"].map(qs=>{
+                  const qj=jobs.filter(j=>j.status==="Quote"&&j.quote_status===qs);
+                  const tot=qj.reduce((a,j)=>a+lineTotal(j.lines),0);
+                  const hc=qs==="Approved"?C.successBg:qs==="Rejected"?C.dangerBg:C.warnBg;
+                  const tc=qs==="Approved"?C.success:qs==="Rejected"?C.danger:C.warn;
+                  return<div key={qs} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                    <div style={{padding:"10px 16px",background:hc,color:tc,fontWeight:700,fontSize:13,display:"flex",justifyContent:"space-between"}}><span>{qs}</span><span style={{fontWeight:400,fontSize:12}}>{qj.length} · {fmtGBP(tot)}</span></div>
+                    {qj.length===0&&<Em>None</Em>}
+                    {qj.map(j=><div key={j.id} style={{padding:"12px 16px",borderTop:`1px solid ${C.borderLight}`,cursor:"pointer"}} onClick={()=>setJobModal(j)}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><Ref>{j.job_ref}</Ref><span style={{fontWeight:700,color:C.navy,fontSize:13}}>{fmtGBP(lineTotal(j.lines))}</span></div>
+                      <div style={{fontSize:13,color:C.textMid,marginBottom:2}}>{j.customer_name}</div>
+                      {j.po_number&&<div style={{fontSize:11,color:C.textLight}}>PO: {j.po_number}</div>}
+                      <div style={{fontSize:11,color:C.textLight,marginTop:4}}>Due {fmt(j.due_date)}</div>
+                    </div>)}
+                  </div>;
+                })}
+              </div>
+            </>}
+
+            {/* CUSTOMERS */}
+            {view==="customers"&&<>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+                <h1 style={{...S.pageH,margin:0}}>Customers</h1>
+                <Btn onClick={()=>setEditCust(newCust())}>+ Add Customer</Btn>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                {customers.map(c=>{
+                  const cj=jobs.filter(j=>j.customer_id===c.id);
+                  const active=cj.filter(j=>j.status!=="Invoiced").length;
+                  const uninv=cj.filter(j=>j.status==="Ready to Despatch").length;
+                  const total=cj.reduce((a,j)=>a+lineTotal(j.lines),0);
+                  return<div key={c.id} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:16,display:"flex",gap:14,alignItems:"flex-start",cursor:"pointer"}} onDoubleClick={()=>setCustDetail(c)}>
+                    <div style={{width:44,height:44,borderRadius:"50%",background:C.navyLight,color:C.white,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,flexShrink:0}}>{c.name.split(" ").slice(0,2).map(w=>w[0]).join("")}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:15,color:C.navy,marginBottom:6}}>{c.name}</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:8}}>{(c.contacts||[]).map(ct=><div key={ct.id} style={{fontSize:12,color:C.textMid}}>👤 {ct.name}{ct.phone?` · ${ct.phone}`:""}{ct.email?<span> · <a onDoubleClick={e=>{e.stopPropagation();window.location.href=`mailto:${ct.email}`;}} style={{color:C.accent,cursor:"pointer",textDecoration:"underline"}} title="Double-click to email">{ct.email}</a></span>:""}</div>)}</div>
+                      {c.notes&&<div style={{fontSize:12,color:C.textLight,fontStyle:"italic",marginBottom:8}}>{c.notes}</div>}
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <Tag>{cj.length} total jobs</Tag>
+                        {active>0&&<Tag color={C.accent}>{active} active</Tag>}
+                        {uninv>0&&<Tag color={C.danger}>{uninv} awaiting invoice</Tag>}
+                        <Tag color={C.gold}>Lifetime: {fmtGBP(total)}</Tag>
+                      </div>
+                      <div style={{fontSize:11,color:C.textLight,marginTop:6}}>Double-click to view details</div>
+                    </div>
+                    <div style={{display:"flex",gap:8,flexShrink:0}}>
+                      <button style={S.iconBtn} onClick={e=>{e.stopPropagation();setCustHistory(c);}}>📋 History</button>
+                      <button style={S.iconBtn} onClick={e=>{e.stopPropagation();setEditCust(c);}}>✎ Edit</button>
+                    </div>
+                  </div>;
+                })}
+              </div>
+            </>}
+
+            {/* PRICE SEARCH */}
+            {view==="pricing"&&<>
+              <h1 style={S.pageH}>Price Search</h1>
+              <input style={{...S.inp2,maxWidth:480,marginBottom:20}} placeholder="Search by keyword e.g. 'bracket', 'laser', 'panel'…" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)} autoFocus/>
+              {priceSearch&&priceResults.length===0&&<Em center>No matching line items found.</Em>}
+              {priceResults.length>0&&<div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",fontSize:13}}>
+                  <thead><tr style={{background:C.navy}}>{["Job Ref","Customer","Date","Description","Qty","Unit Price","Line Total"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"left",color:C.silver,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                  <tbody>{priceResults.map((r,i)=><tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}><td style={S.td}><Ref>{r.job_ref}</Ref></td><td style={S.td}>{r.customer}</td><td style={S.td}>{fmt(r.date)}</td><td style={S.td}>{r.desc}</td><td style={S.td}>{r.qty}</td><td style={S.td}>{fmtGBP(r.price)}</td><td style={{...S.td,fontWeight:700,color:C.navy}}>{r.total}</td></tr>)}</tbody>
+                </table>
+              </div>}
+              {!priceSearch&&<Em center>Type a keyword to search pricing history across all jobs.</Em>}
+            </>}
+
+            {/* HR */}
+            {view==="hr"&&<HRView staff={staff} setStaff={setStaff} hrModal={hrModal} setHrModal={setHrModal} addLeave={addLeave} setAddLeave={setAddLeave}/>}
+
+            {/* ALERTS */}
+            {view==="alerts"&&<>
+              <h1 style={S.pageH}>Alerts & Actions Required</h1>
+              {dueTomorrow.length>0&&<><ACard title="Due Tomorrow — Not Yet Ready" count={dueTomorrow.length} color={C.warn}>{dueTomorrow.map(j=><ALarge key={j.id} job={j} onClick={()=>setJobModal(j)}/>)}</ACard><div style={{height:16}}/></>}
+              <ACard title="Overdue Jobs" count={overdue.length} color={C.danger}>{overdue.length===0?<Em>No overdue jobs ✓</Em>:overdue.map(j=><ALarge key={j.id} job={j} onClick={()=>setJobModal(j)}/>)}</ACard>
+              <div style={{height:16}}/>
+              <ACard title="Awaiting Invoice" count={uninvoiced.length} color={C.accent}>{uninvoiced.length===0?<Em>All invoiced ✓</Em>:uninvoiced.map(j=><ALarge key={j.id} job={j} onClick={()=>setJobModal(j)} extra={fmtGBP(lineTotal(j.lines))}/>)}</ACard>
+            </>}
+
+          </>}
+        </div>
+      </main>
+
+      {/* CUSTOMER HISTORY */}
+      {custDetail&&<Overlay onClose={()=>setCustDetail(null)}>
+        <div style={{minWidth:300,maxWidth:480}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+            <div style={{width:52,height:52,borderRadius:"50%",background:C.navyLight,color:C.white,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:18,flexShrink:0}}>{custDetail.name.split(" ").slice(0,2).map(w=>w[0]).join("")}</div>
+            <div><div style={{fontSize:18,fontWeight:700,color:C.navy}}>{custDetail.name}</div>{custDetail.notes&&<div style={{fontSize:12,color:C.textLight,fontStyle:"italic",marginTop:2}}>{custDetail.notes}</div>}</div>
+          </div>
+          <div style={{fontWeight:700,fontSize:12,color:C.textLight,letterSpacing:0.5,textTransform:"uppercase",marginBottom:10}}>Contacts</div>
+          {(custDetail.contacts||[]).map(ct=>(
+            <div key={ct.id} style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:10}}>
+              <div style={{fontWeight:700,fontSize:14,color:C.navy,marginBottom:8}}>👤 {ct.name}</div>
+              {ct.phone&&<div style={{fontSize:13,color:C.textMid,marginBottom:6}}>📞 <a href={"tel:"+ct.phone} style={{color:C.accent,textDecoration:"none"}}>{ct.phone}</a></div>}
+              {ct.email&&<div style={{fontSize:13,color:C.textMid,marginBottom:4}}>✉ <a href={"mailto:"+ct.email} style={{color:C.accent,textDecoration:"underline",cursor:"pointer"}} onDoubleClick={()=>window.location.href="mailto:"+ct.email}>{ct.email}</a> <span style={{fontSize:11,color:C.textLight}}>(double-click to email)</span></div>}
+            </div>
+          ))}
+          <div style={{display:"flex",gap:10,marginTop:16}}>
+            <Btn onClick={()=>{setCustHistory(custDetail);setCustDetail(null);}}>📋 View History</Btn>
+            <Btn onClick={()=>{setEditCust(custDetail);setCustDetail(null);}}>✎ Edit</Btn>
+          </div>
+        </div>
+      </Overlay>}
+
+            {custHistory&&<Overlay onClose={()=>setCustHistory(null)}>
+        <div style={{minWidth:300,maxWidth:700}}>
+          <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>{custHistory.name}</div>
+          <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>Order & pricing history</div>
+          {jobs.filter(j=>j.customer_id===custHistory.id).length===0?<Em>No jobs found.</Em>:jobs.filter(j=>j.customer_id===custHistory.id).map(j=>(
+            <div key={j.id} style={{border:`1px solid ${C.border}`,borderRadius:8,marginBottom:12,overflow:"hidden"}}>
+              <div style={{background:C.silverPale,padding:"8px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,cursor:"pointer"}} onClick={()=>{setCustHistory(null);setJobModal(j);}}>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}><Ref>{j.job_ref}</Ref>{j.po_number&&<span style={{fontSize:12,color:C.textLight}}>PO: {j.po_number}</span>}<SPill s={j.status}/></div>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}><span style={{fontSize:12,color:C.textLight}}>Due {fmt(j.due_date)} · {j.contact_name}</span><span style={{fontSize:11,color:C.accent,fontWeight:600}}>Open →</span></div>
+              </div>
+              <div style={{padding:"8px 14px"}}>
+                {(j.lines||[]).map(l=><div key={l.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+                  <span style={{flex:1}}>{l.desc}</span>
+                  <span style={{color:C.textLight,marginLeft:12}}>x{l.qty}</span>
+                  <span style={{color:C.textLight,marginLeft:12,minWidth:60,textAlign:"right"}}>{fmtGBP(l.price)} ea</span>
+                  <span style={{color:C.navy,fontWeight:700,marginLeft:12,minWidth:70,textAlign:"right"}}>{fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))}</span>
+                </div>)}
+                <div style={{display:"flex",justifyContent:"flex-end",fontWeight:700,fontSize:14,color:C.navy,paddingTop:6}}>Total: {fmtGBP(lineTotal(j.lines))}</div>
+              </div>
+            </div>
+          ))}
+          <div style={{marginTop:8,fontWeight:700,fontSize:14,color:C.navy,textAlign:"right"}}>Lifetime Value: {fmtGBP(jobs.filter(j=>j.customer_id===custHistory.id).reduce((a,j)=>a+lineTotal(j.lines),0))}</div>
+        </div>
+      </Overlay>}
+
+      {/* DELIVERY FLOW */}
+      {deliveryFlow&&(
+        <Overlay onClose={()=>setDeliveryFlow(null)}>
+          <DeliveryFlow
+            job={deliveryFlow}
+            customers={customers}
+            onComplete={async(job,selectedIds,method)=>{
+              // Record despatched lines
+              const now=todayStr();
+              const updatedLines=job.lines.map(l=>selectedIds.includes(l.id)?{...l,delivered:true,deliveredDate:now}:l);
+              const allDelivered=updatedLines.every(l=>l.delivered);
+              const newStatus=allDelivered?"Ready to Despatch":"Part Despatched";
+              await supabase.from("jobs").update({lines:updatedLines,status:newStatus}).eq("id",job.id);
+              await loadJobs();
+              const updated={...job,lines:updatedLines,status:newStatus};
+              setDeliveryFlow(null);
+              const deliveryDoc={...updated,lines:updatedLines.filter(l=>selectedIds.includes(l.id))};
+              if(method==="print"||method==="both"){
+                setTimeout(()=>setDeliveryJob(deliveryDoc),200);
+              }
+              if(method==="email"||method==="both"){
+                setTimeout(()=>setEmailDelivery(deliveryDoc),method==="both"?2000:200);
+              }
+              toast_(`Delivery note recorded — job: ${newStatus}`);
+            }}
+            onCancel={()=>setDeliveryFlow(null)}
+          />
+        </Overlay>
+      )}
+
+      {/* JOB DETAIL */}
+      {jobModal&&!editJob&&<Overlay onClose={()=>setJobModal(null)}>
+        <JobDetail job={jobModal}
+          onEdit={()=>{setEditJob(jobModal);setJobModal(null);}}
+          onAdvance={()=>advanceJob(jobModal)}
+          onDelete={()=>{setConfirmDel(jobModal);setJobModal(null);}}
+          onToggleStage={toggleStage} onAddStage={addStage} onRemoveStage={removeStage}
+          onPrint={()=>{setPrintJob(jobModal);addToPrintQueue(jobModal);setJobModal(null);}}
+          onEmailDelivery={()=>{setEmailDelivery(jobModal);setJobModal(null);}}
+          onPrintQuote={()=>{setPrintQuote(jobModal);setJobModal(null);}}
+          onDelivery={()=>{setDeliveryJob(jobModal);setJobModal(null);}}
+          onPartDelivery={(type)=>{setPartDelivery({job:jobModal,type:type||'part'});setJobModal(null);}}
+          stageInput={stageInput} setStageInput={setStageInput}
+          allJobs={jobs}
+        />
+      </Overlay>}
+
+      {/* JOB FORM */}
+      {editJob&&<Overlay onClose={()=>setEditJob(null)}>
+        <JobForm job={editJob} customers={customers} allJobs={jobs}
+          onSave={(j)=>{
+            const cust=customers.find(c=>c.id===j.customer_id);
+            const custName=cust?.name||j.customer_name||"";
+            const isNew=!j.id;
+            const isLaser=isNew&&LASER_CUSTOMERS.some(n=>custName.toLowerCase().includes(n));
+            const jobWithName={...j,customer_name:custName};
+            if(isLaser&&!laserPrompt){setLaserPrompt({job:jobWithName});setEditJob(null);}
+            else saveJob(jobWithName);
+          }}
+          onCancel={()=>setEditJob(null)}
+        />
+      </Overlay>}
+
+      {/* CUSTOMER FORM */}
+      {editCust&&<Overlay onClose={()=>setEditCust(null)}>
+        <CustForm cust={editCust} onSave={saveCust} onCancel={()=>setEditCust(null)}/>
+      </Overlay>}
+    </div>
+  );
+}
+
+// ── INVOICE PROMPT ────────────────────────────────────────────────────────────
+function InvoicePrompt({job,onConfirm,onCancel}){
+  const[ref,setRef]=useState(job.invoice_ref||"");
+  return(
+    <div style={{maxWidth:400}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:8}}>Mark as Invoiced</div>
+      <div style={{fontSize:14,color:C.textMid,marginBottom:16}}>Job <strong>{job.job_ref}</strong> · {job.customer_name}</div>
+      <FF label="QuickBooks Invoice Reference">
+        <input style={S.inp} value={ref} onChange={e=>setRef(e.target.value)} placeholder="e.g. INV-001" autoFocus/>
+      </FF>
+      <div style={{fontSize:12,color:C.textLight,marginBottom:16}}>Enter your QB invoice number to cross-reference. You can leave blank and add later.</div>
+      <div style={{display:"flex",gap:10}}>
+        <Btn primary onClick={()=>onConfirm(job,ref)}>Mark Invoiced</Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── PART DELIVERY FORM ────────────────────────────────────────────────────────
+function PartDeliveryForm({job,type,onConfirm,onCancel}){
+  const isFinal = type==="final";
+  const available=(job.lines||[]).filter(l=>!l.delivered);
+  const delivered=(job.lines||[]).filter(l=>l.delivered);
+  const[selected,setSelected]=useState(available.map(l=>l.id));
+  const[note,setNote]=useState("");
+  function toggle(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  return(
+    <div style={{maxWidth:560}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>
+        {isFinal?"✅ Final Despatch":"📦 Part Despatch"}
+      </div>
+      <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>
+        {isFinal?"Confirm final items being despatched — this will complete the order":"Select the items being despatched today"}
+      </div>
+
+      {/* Previously despatched - shown on final */}
+      {isFinal&&delivered.length>0&&(
+        <div style={{background:C.successBg,border:`1px solid #90d0a0`,borderRadius:8,padding:12,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.success,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>Previously Despatched</div>
+          {delivered.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"5px 0",borderBottom:`1px solid #c0e8c8`,fontSize:13}}>
+            <span style={{color:C.success}}>✓</span>
+            <span style={{flex:1,color:C.textMid}}>{l.desc||"—"}</span>
+            <span style={{color:C.textLight,fontSize:12}}>x{l.qty}</span>
+            <span style={{color:C.success,fontSize:12}}>Sent {fmt(l.deliveredDate)}</span>
+          </div>)}
+        </div>
+      )}
+
+      <div style={{fontSize:11,fontWeight:700,color:C.textLight,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>
+        {isFinal?"Final Items":"Select Items to Despatch"}
+      </div>
+      {available.length===0&&<Em>All lines already delivered.</Em>}
+      {available.map(l=>(
+        <div key={l.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:selected.includes(l.id)?C.successBg:C.white,border:`1px solid ${selected.includes(l.id)?"#90d0a0":C.border}`,borderRadius:8,marginBottom:8,cursor:"pointer"}} onClick={()=>toggle(l.id)}>
+          <div style={{width:20,height:20,borderRadius:4,border:`2px solid ${selected.includes(l.id)?C.success:C.border}`,background:selected.includes(l.id)?C.success:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            {selected.includes(l.id)&&<span style={{color:"#fff",fontSize:12}}>✓</span>}
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text}}>{l.desc||"—"}</div>
+            <div style={{fontSize:12,color:C.textLight}}>Qty: {l.qty} · {fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))}</div>
+          </div>
+        </div>
+      ))}
+      <FF label="Delivery Note / Reference">
+        <input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="Optional note e.g. driver name, vehicle"/>
+      </FF>
+      <div style={{fontSize:12,color:C.textLight,marginBottom:16}}>
+        {isFinal?"Delivery note will print for final items. Job will move to Ready to Despatch.":"Delivery note will print for selected items. Job stays open for remaining items."}
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <Btn primary onClick={()=>onConfirm(job,selected,note,isFinal)} disabled={selected.length===0}>
+          {isFinal?"Confirm Final Despatch":"Confirm Part Despatch"}
+        </Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── JOB TABLE ─────────────────────────────────────────────────────────────────
+function JobTable({jobs,onOpen}){
+  return(
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",fontSize:13}}>
+        <thead><tr style={{background:C.navy}}>{["Job Ref","Customer","PO Number","Items to Make","Due Date","Status","Priority","Value"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"left",color:C.silver,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+        <tbody>{jobs.map(j=>(
+          <tr key={j.id} style={{borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",verticalAlign:"top",...(isOverdue(j)?{background:"#fff5f5"}:{})}} onClick={()=>onOpen(j)}>
+            <td style={{...S.td,whiteSpace:"nowrap"}}><Ref>{j.job_ref}</Ref></td>
+            <td style={{...S.td,whiteSpace:"nowrap"}}>{j.customer_name||"—"}</td>
+            <td style={{...S.td,color:C.textLight,fontSize:12,whiteSpace:"nowrap"}}>{j.po_number||"—"}</td>
+            <td style={{...S.td,minWidth:220}}>
+              {(j.lines||[]).length===0
+                ?<span style={{color:C.textLight}}>{j.description||"—"}</span>
+                :(j.lines||[]).map((l,i)=>(
+                  <div key={l.id||i} style={{display:"flex",alignItems:"baseline",gap:6,padding:"1px 0",...(l.delivered?{opacity:0.5,textDecoration:"line-through"}:{})}}>
+                    <span style={{color:l.delivered?C.success:C.textLight,fontSize:10,flexShrink:0}}>{l.delivered?"✓":"•"}</span>
+                    <span style={{fontSize:12,color:l.delivered?C.textLight:C.text}}>{l.desc||"—"}</span>
+                    <span style={{fontSize:11,color:C.textLight,whiteSpace:"nowrap",flexShrink:0}}>×{l.qty}</span>
+                  </div>
+                ))
+              }
+            </td>
+            <td style={{...S.td,whiteSpace:"nowrap",color:isOverdue(j)?C.danger:C.textMid}}>{fmt(j.due_date)}</td>
+            <td style={{...S.td,whiteSpace:"nowrap"}}><SPill s={j.status}/></td>
+            <td style={{...S.td,whiteSpace:"nowrap"}}><PPill p={j.priority}/></td>
+            <td style={{...S.td,fontWeight:700,color:C.navy,whiteSpace:"nowrap"}}>{fmtGBP(lineTotal(j.lines))}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── JOB DETAIL ────────────────────────────────────────────────────────────────
+function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDeliveryFlow,stageInput,setStageInput,allJobs}){
+  const allS=job.stages||[];
+  const done=allS.filter(s=>job.stages_complete?.[s]).length;
+  const next=STATUS_FLOW[STATUS_FLOW.indexOf(job.status)+1];
+  const pct=allS.length>0?Math.round((done/allS.length)*100):null;
+  const delivered=(job.lines||[]).filter(l=>l.delivered);
+  const pending=(job.lines||[]).filter(l=>!l.delivered);
+  return(
+    <div style={{minWidth:300,maxWidth:640}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+        <div><div style={{fontSize:22,fontWeight:800,color:C.navy,letterSpacing:1,fontFamily:"monospace"}}>{job.job_ref}</div><div style={{color:C.textLight,fontSize:13,marginTop:2}}>Received {fmt(job.date_received)}</div></div>
+        <SPill s={job.status} large/>
+      </div>
+      {isOverdue(job)&&<div style={{background:C.dangerBg,color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:6,padding:"8px 14px",fontSize:13,fontWeight:600,marginBottom:14}}>⚠ Overdue — due {fmt(job.due_date)}</div>}
+      {isDueTomorrow(job)&&<div style={{background:C.warnBg,color:C.warn,border:`1px solid ${C.gold}`,borderRadius:6,padding:"8px 14px",fontSize:13,fontWeight:600,marginBottom:14}}>⏰ Due tomorrow</div>}
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px",marginBottom:12}}>
+        {[["Customer",job.customer_name],["Contact",job.contact_name],["PO Number",job.po_number],["Due Date",fmt(job.due_date)],["Priority",<PPill p={job.priority}/>],["Quote Ref",job.quote_ref],["Drawing No",job.drawing_number],["Invoice Ref",job.invoice_ref],["Notes",job.notes]].filter(([,v])=>v).map(([l,v])=>(
+          <div key={l} style={{display:"flex",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+            <span style={{color:C.textLight,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",minWidth:90}}>{l}</span>
+            <span style={{color:C.text,fontSize:13,flex:1}}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ORDER LINES with delivery status - all lines always visible */}
+      <div style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontWeight:700,fontSize:13,color:C.navy}}>Order Lines</span>
+          <span style={{fontSize:11,color:C.textLight}}>{(job.lines||[]).length} item{(job.lines||[]).length!==1?"s":""}</span>
+        </div>
+        {(job.lines||[]).filter(l=>!l.delivered).length>0&&<>
+          {(job.lines||[]).filter(l=>l.delivered).length>0&&<div style={{fontSize:11,color:C.textLight,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Pending</div>}
+          {(job.lines||[]).filter(l=>!l.delivered).map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"flex-start"}}>
+            <span style={{width:14,height:14,border:`2px solid ${C.border}`,borderRadius:3,flexShrink:0,display:"inline-block",marginTop:2}}/>
+            <span style={{flex:1,wordBreak:"break-word"}}>{l.desc||"—"}</span>
+            <span style={{color:C.textLight,whiteSpace:"nowrap",marginLeft:8}}>x{l.qty}</span>
+            <span style={{color:C.navy,fontWeight:700,whiteSpace:"nowrap",minWidth:70,textAlign:"right"}}>{fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))}</span>
+          </div>)}
+        </>}
+        {delivered.length>0&&<>
+          <div style={{fontSize:11,color:C.success,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",margin:"10px 0 6px"}}>Previously Despatched</div>
+          {delivered.map(l=><div key={l.id} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:13,alignItems:"flex-start",background:"#f8fff8",margin:"0 -14px",padding:"7px 14px"}}>
+            <span style={{color:C.success,fontSize:14,flexShrink:0,marginTop:1}}>✓</span>
+            <span style={{flex:1,color:C.textMid,wordBreak:"break-word"}}>{l.desc||"—"}</span>
+            <span style={{color:C.textLight,whiteSpace:"nowrap",marginLeft:8}}>x{l.qty}</span>
+            <span style={{color:C.success,fontSize:11,whiteSpace:"nowrap",marginLeft:8}}>Sent {fmt(l.deliveredDate)}</span>
+          </div>)}
+        </>}
+        <div style={{display:"flex",justifyContent:"flex-end",fontWeight:700,fontSize:15,color:C.navy,paddingTop:8,borderTop:`1px solid ${C.border}`,marginTop:4}}>Total: {fmtGBP(lineTotal(job.lines))}</div>
+      </div>
+
+      {/* STAGES */}
+      <div style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,fontSize:13,color:C.navy,marginBottom:8}}><span>Production Stages</span>{pct!==null&&<span style={{fontSize:12,color:C.textLight}}>{done}/{allS.length}</span>}</div>
+        {pct!==null&&<div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:10}}><div style={{height:"100%",background:C.success,width:`${pct}%`,borderRadius:3,transition:"width .3s"}}/></div>}
+        <div style={{display:"flex",flexWrap:"wrap",gap:7,marginBottom:10}}>
+          {allS.length===0&&<span style={{color:C.textLight,fontSize:13}}>No stages added yet.</span>}
+          {allS.map(s=><div key={s} style={{display:"flex",alignItems:"center",gap:6,background:job.stages_complete?.[s]?C.successBg:C.white,border:`1px solid ${job.stages_complete?.[s]?"#90d0a0":C.border}`,borderRadius:20,padding:"4px 11px",cursor:"pointer",fontSize:12,color:job.stages_complete?.[s]?C.success:C.textMid,userSelect:"none"}} onClick={()=>onToggleStage(job,s)}>
+            <span>{job.stages_complete?.[s]?"✓":"○"}</span><span>{s}</span>
+            <span style={{color:C.border,fontSize:10,cursor:"pointer"}} onClick={e=>{e.stopPropagation();onRemoveStage(job,s);}}>✕</span>
+          </div>)}
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
+          {PRESET_STAGES.filter(s=>!allS.includes(s)).map(s=><button key={s} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:20,padding:"2px 10px",fontSize:11,fontFamily:"inherit",cursor:"pointer",color:C.textMid}} onClick={()=>onAddStage(job,s)}>+ {s}</button>)}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...S.inp2,flex:1}} placeholder="Custom stage…" value={stageInput} onChange={e=>setStageInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onAddStage(job)}/>
+          <Btn small onClick={()=>onAddStage(job)}>Add</Btn>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {/* Advance button - only for non-despatch statuses */}
+        {job.status==="Quote"&&next&&<Btn primary onClick={onAdvance}>→ Move to: In Production</Btn>}
+        {job.status==="Ready to Despatch"&&<Btn primary onClick={onAdvance}>→ Mark as Invoiced</Btn>}
+        {/* Despatch buttons - always show both when items pending */}
+        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&<Btn onClick={()=>onPartDelivery("part")}>📦 Part Despatch</Btn>}
+        {(job.status==="In Production"||job.status==="Part Despatched")&&pending.length>0&&<Btn primary onClick={()=>onPartDelivery("final")}>✅ Final Despatch</Btn>}
+        <Btn onClick={onEdit}>Edit</Btn>
+        <Btn onClick={onPrint}>Print Job Sheet</Btn>
+        {job.status==="Quote"&&<Btn onClick={onPrintQuote}>Print Quote</Btn>}
+        <Btn onClick={onDelivery}>🖨 Print Delivery Note</Btn>
+        <Btn onClick={onEmailDelivery}>✉ Email Delivery Note</Btn>
+        <Btn danger onClick={onDelete}>Delete</Btn>
+      </div>
+      <FileAttachments job={job}/>
+    </div>
+  );
+}
+
+// ── JOB FORM ──────────────────────────────────────────────────────────────────
+function JobForm({job,customers,onSave,onCancel,allJobs}){
+  const[f,setF]=useState({...job,lines:job.lines&&job.lines.length>0?job.lines:[newLine()]});
+  const[lineSearch,setLineSearch]=useState("");
+  const[lineSearchResults,setLineSearchResults]=useState([]);
+  const s=(k,v)=>setF(p=>({...p,[k]:v}));
+  const selCust=customers.find(c=>c.id===f.customer_id);
+  const contacts=selCust?.contacts||[];
+  function setLine(id,k,v){setF(p=>({...p,lines:p.lines.map(l=>l.id===id?{...l,[k]:v}:l)}));}
+  function addLine(){setF(p=>({...p,lines:[...p.lines,newLine()]}));}
+  function removeLine(id){setF(p=>({...p,lines:p.lines.filter(l=>l.id!==id)}));}
+  const total=lineTotal(f.lines);
+
+  // Line search from previous jobs
+  function searchLines(q){
+    if(!q.trim()){setLineSearchResults([]);return;}
+    const results=[];
+    allJobs.forEach(j=>(j.lines||[]).forEach(l=>{
+      if(l.desc?.toLowerCase().includes(q.toLowerCase())&&!results.find(r=>r.desc===l.desc))
+        results.push({desc:l.desc,price:l.price,jobRef:j.job_ref,customer:j.customer_name});
+    }));
+    setLineSearchResults(results.slice(0,8));
+  }
+
+  function addFromHistory(item){
+    setF(p=>({...p,lines:[...p.lines,{...newLine(),desc:item.desc,price:item.price}]}));
+    setLineSearch("");setLineSearchResults([]);
+  }
+
+  return(
+    <div style={{minWidth:300,maxWidth:660}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:16}}>{f.id?"Edit Job":"New Job"}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+        <FF label="Customer" full>
+          <select style={S.inp} value={f.customer_id} onChange={e=>{s("customer_id",e.target.value);s("contact_id","");s("contact_name","");}}>
+            <option value="">— Select customer —</option>
+            {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </FF>
+        <FF label="Contact">
+          <select style={S.inp} value={f.contact_id} onChange={e=>{const ct=contacts.find(c=>c.id===e.target.value);s("contact_id",e.target.value);s("contact_name",ct?.name||"");}} disabled={!f.customer_id}>
+            <option value="">— Select contact —</option>
+            {contacts.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </FF>
+        <FF label="PO Number"><input style={S.inp} value={f.po_number} onChange={e=>s("po_number",e.target.value)} placeholder="e.g. PO-1234"/></FF>
+        <FF label="Status"><select style={S.inp} value={f.status} onChange={e=>s("status",e.target.value)}>{STATUS_FLOW.map(x=><option key={x}>{x}</option>)}</select></FF>
+        <FF label="Priority"><select style={S.inp} value={f.priority} onChange={e=>s("priority",e.target.value)}>{PRIORITIES.map(x=><option key={x}>{x}</option>)}</select></FF>
+        <FF label="Date Received"><input type="date" style={S.inp} value={f.date_received} onChange={e=>s("date_received",e.target.value)}/></FF>
+        <FF label="Due Date"><input type="date" style={S.inp} value={f.due_date} onChange={e=>s("due_date",e.target.value)}/></FF>
+        <FF label="Quote Reference"><input style={S.inp} value={f.quote_ref} onChange={e=>s("quote_ref",e.target.value)}/></FF>
+        <FF label="Quote Status"><select style={S.inp} value={f.quote_status} onChange={e=>s("quote_status",e.target.value)}>{QUOTE_STATUSES.map(x=><option key={x}>{x}</option>)}</select></FF>
+        <FF label="Quote Date"><input type="date" style={S.inp} value={f.quote_date||""} onChange={e=>s("quote_date",e.target.value)}/></FF>
+        <FF label="Drawing Number"><input style={S.inp} value={f.drawing_number} onChange={e=>s("drawing_number",e.target.value)} placeholder="e.g. DWG-001"/></FF>
+        <FF label="Drawing Attached?">
+          <select style={S.inp} value={f.drawing_attached?"yes":"no"} onChange={e=>s("drawing_attached",e.target.value==="yes")}>
+            <option value="no">No</option><option value="yes">Yes</option>
+          </select>
+        </FF>
+        <FF label="Invoice Reference"><input style={S.inp} value={f.invoice_ref} onChange={e=>s("invoice_ref",e.target.value)}/></FF>
+        <FF label="Description" full><input style={S.inp} value={f.description} onChange={e=>s("description",e.target.value)} placeholder="Brief job description"/></FF>
+        <FF label="Notes" full><textarea style={{...S.inp,minHeight:56}} value={f.notes} onChange={e=>s("notes",e.target.value)}/></FF>
+      </div>
+
+      {/* ORDER LINES */}
+      <div style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:16}}>
+        <div style={{fontWeight:700,fontSize:13,color:C.navy,marginBottom:10}}>Order Lines</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 60px 80px 24px",gap:6,marginBottom:6}}>
+          {["Description","Qty","Unit £",""].map(h=><div key={h} style={{fontSize:11,color:C.textLight,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase"}}>{h}</div>)}
+        </div>
+        {f.lines.map(l=>(
+          <div key={l.id} style={{marginBottom:6}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 60px 80px 24px",gap:6,alignItems:"center"}}>
+              <input style={S.inp} value={l.desc} onChange={e=>{setLine(l.id,"desc",e.target.value);searchLines(e.target.value);}} placeholder="Item description" onFocus={()=>searchLines(l.desc)}/>
+              <input style={{...S.inp,textAlign:"center"}} type="number" value={l.qty} onChange={e=>setLine(l.id,"qty",e.target.value)} min="1"/>
+              <input style={{...S.inp,textAlign:"right"}} type="number" value={l.price} onChange={e=>setLine(l.id,"price",e.target.value)} placeholder="0.00"/>
+              <button style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",color:C.danger,fontSize:14,lineHeight:1,padding:"4px 6px"}} onClick={()=>removeLine(l.id)}>✕</button>
+            </div>
+            {/* Price history hint */}
+            {lineSearchResults.length>0&&(
+              <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:6,marginTop:4,overflow:"hidden",boxShadow:"0 4px 12px #0002"}}>
+                <div style={{fontSize:11,color:C.textLight,padding:"4px 10px",borderBottom:`1px solid ${C.borderLight}`,fontWeight:700,letterSpacing:0.4}}>PREVIOUS PRICES — click to use</div>
+                {lineSearchResults.map((r,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 10px",borderBottom:`1px solid ${C.borderLight}`,fontSize:12}}>
+                    <span style={{flex:1,color:C.text}}>{r.desc}</span>
+                    <span style={{color:C.navy,fontWeight:700}}>{fmtGBP(r.price)}</span>
+                    <span style={{color:C.textLight,fontSize:11}}>{r.jobRef} · {r.customer}</span>
+                    <button style={{background:C.silverLight,border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:11,fontFamily:"inherit",color:C.navy,whiteSpace:"nowrap"}} onClick={()=>{setLine(l.id,"desc",r.desc);setLine(l.id,"price",r.price);setLineSearchResults([]);}}>Use here</button>
+                    <button style={{background:C.successBg,border:`1px solid #90d0a0`,borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:11,fontFamily:"inherit",color:C.success,whiteSpace:"nowrap"}} onClick={()=>{setF(p=>({...p,lines:[...p.lines,{...newLine(),desc:r.desc,price:r.price}]}));setLineSearchResults([]);}}>+ Add line</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* Search previous products */}
+        <div style={{marginTop:10,marginBottom:10}}>
+          <div style={{fontSize:11,color:C.textLight,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Add from previous orders</div>
+          <div style={{position:"relative"}}>
+            <input style={{...S.inp,paddingRight:32}} value={lineSearch} onChange={e=>{setLineSearch(e.target.value);searchLines(e.target.value);}} placeholder="Search previous line items to add…"/>
+            {lineSearch&&<button style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textLight,fontSize:16}} onClick={()=>{setLineSearch("");setLineSearchResults([]);}}>✕</button>}
+          </div>
+          {lineSearchResults.length>0&&lineSearch&&(
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:6,marginTop:4,overflow:"hidden"}}>
+              {lineSearchResults.map((r,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",fontSize:13}} onClick={()=>addFromHistory(r)}>
+                  <span style={{flex:1}}>{r.desc}</span>
+                  <span style={{color:C.navy,fontWeight:700}}>{fmtGBP(r.price)}</span>
+                  <span style={{color:C.textLight,fontSize:11}}>{r.jobRef}</span>
+                  <span style={{color:C.accent,fontSize:11,fontWeight:600}}>+ Add</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
+          <button style={{background:"none",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px 12px",fontFamily:"inherit",fontSize:12,cursor:"pointer",color:C.accent}} onClick={addLine}>+ Add Blank Line</button>
+          <div style={{fontWeight:700,fontSize:15,color:C.navy}}>Total: {fmtGBP(total)}</div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:10}}>
+        <Btn primary onClick={()=>onSave(f)}>Save Job</Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── CUSTOMER FORM ─────────────────────────────────────────────────────────────
+function CustForm({cust,onSave,onCancel}){
+  const[f,setF]=useState({...cust,contacts:cust.contacts&&cust.contacts.length>0?cust.contacts:[{id:"ct"+Date.now(),name:"",email:"",phone:""}]});
+  const s=(k,v)=>setF(p=>({...p,[k]:v}));
+  function setCt(id,k,v){setF(p=>({...p,contacts:p.contacts.map(c=>c.id===id?{...c,[k]:v}:c)}));}
+  function addCt(){setF(p=>({...p,contacts:[...p.contacts,{id:"ct"+Date.now(),name:"",email:"",phone:""}]}));}
+  function removeCt(id){setF(p=>({...p,contacts:p.contacts.filter(c=>c.id!==id)}));}
+  return(
+    <div style={{minWidth:300,maxWidth:500}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:16}}>{f.id?"Edit Customer":"New Customer"}</div>
+      <FF label="Company Name"><input style={S.inp} value={f.name} onChange={e=>s("name",e.target.value)}/></FF>
+      <FF label="Notes"><input style={S.inp} value={f.notes} onChange={e=>s("notes",e.target.value)}/></FF>
+      <div style={{fontWeight:700,fontSize:13,color:C.navy,margin:"14px 0 8px"}}>Contacts</div>
+      {f.contacts.map((ct,i)=>(
+        <div key={ct.id} style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <span style={{fontSize:12,fontWeight:700,color:C.textMid}}>Contact {i+1}</span>
+            {f.contacts.length>1&&<button style={{background:"none",border:"none",color:C.danger,cursor:"pointer",fontSize:12}} onClick={()=>removeCt(ct.id)}>Remove</button>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            <FF label="Name"><input style={S.inp} value={ct.name} onChange={e=>setCt(ct.id,"name",e.target.value)}/></FF>
+            <FF label="Email"><input style={S.inp} value={ct.email} onChange={e=>setCt(ct.id,"email",e.target.value)}/></FF>
+            <FF label="Phone"><input style={S.inp} value={ct.phone} onChange={e=>setCt(ct.id,"phone",e.target.value)}/></FF>
+          </div>
+        </div>
+      ))}
+      <button style={{background:"none",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px 12px",fontFamily:"inherit",fontSize:12,cursor:"pointer",color:C.accent,marginBottom:16}} onClick={addCt}>+ Add Another Contact</button>
+      <div style={{display:"flex",gap:10}}><Btn primary onClick={()=>onSave(f)}>Save</Btn><Btn ghost onClick={onCancel}>Cancel</Btn></div>
+    </div>
+  );
+}
+
+// ── QUOTE DOCUMENT ───────────────────────────────────────────────────────────
+function QuoteDoc({job,onClose}){
+  useEffect(()=>{const t=setTimeout(()=>window.print(),500);return()=>clearTimeout(t);},[]);
+  const quoteDate = job.quote_date||job.date_received||todayStr();
+  const expiryDate = (() => {
+    const d = new Date(quoteDate); d.setDate(d.getDate()+7);
+    return d.toISOString().split("T")[0];
+  })();
+  const total = lineTotal(job.lines);
+  return(
+    <div style={{background:"#fff",minHeight:"100vh",padding:"32px 40px",fontFamily:"Arial,sans-serif",color:"#000",maxWidth:780,margin:"0 auto"}}>
+      <div className="no-print" style={{display:"flex",gap:10,alignItems:"center",marginBottom:20,padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
+      </div>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:32,paddingBottom:20,borderBottom:"3px solid #c9a84c"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
+          <div style={{fontSize:11,color:"#666",marginTop:3}}>{COMPANY_ADDR}</div>
+          <div style={{fontSize:11,color:"#666"}}>{COMPANY_TEL} · {COMPANY_EMAIL}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color:"#888",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Quotation</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#0f2a4a"}}>{job.job_ref}</div>
+          <div style={{fontSize:12,color:"#666",marginTop:4}}>Date: {fmt(quoteDate)}</div>
+          {job.po_number&&<div style={{fontSize:12,color:"#666"}}>Your Ref: {job.po_number}</div>}
+        </div>
+      </div>
+      {/* Address to */}
+      <div style={{marginBottom:28}}>
+        <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Quotation For</div>
+        <div style={{fontSize:16,fontWeight:700,color:"#0f2a4a"}}>{job.customer_name}</div>
+        {job.contact_name&&<div style={{fontSize:13,color:"#444",marginTop:2}}>Attn: {job.contact_name}</div>}
+      </div>
+      {/* Description */}
+      {job.description&&<div style={{marginBottom:24}}>
+        <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Re</div>
+        <div style={{fontSize:13,color:"#333"}}>{job.description}</div>
+      </div>}
+      {/* Line items */}
+      <table style={{width:"100%",borderCollapse:"collapse",marginBottom:24,fontSize:12}}>
+        <thead>
+          <tr style={{background:"#0f2a4a",color:"#fff"}}>
+            <th style={{padding:"9px 12px",textAlign:"left"}}>Description</th>
+            <th style={{padding:"9px 12px",textAlign:"center",width:60}}>Qty</th>
+            <th style={{padding:"9px 12px",textAlign:"right",width:90}}>Unit Price</th>
+            <th style={{padding:"9px 12px",textAlign:"right",width:100}}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(job.lines||[]).map((l,i)=>(
+            <tr key={l.id} style={{borderBottom:"1px solid #eee",background:i%2===0?"#fafafa":"#fff"}}>
+              <td style={{padding:"9px 12px"}}>{l.desc}</td>
+              <td style={{padding:"9px 12px",textAlign:"center"}}>{l.qty}</td>
+              <td style={{padding:"9px 12px",textAlign:"right"}}>{fmtGBP(l.price)}</td>
+              <td style={{padding:"9px 12px",textAlign:"right",fontWeight:600}}>{fmtGBP(parseFloat(l.qty||1)*parseFloat(l.price||0))}</td>
+            </tr>
+          ))}
+          <tr style={{background:"#0f2a4a",color:"#fff"}}>
+            <td colSpan="3" style={{padding:"10px 12px",textAlign:"right",fontWeight:700,fontSize:13}}>TOTAL (exc. VAT)</td>
+            <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,fontSize:16}}>{fmtGBP(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {/* Terms */}
+      {job.notes&&<div style={{marginBottom:20,fontSize:12,color:"#555"}}>
+        <div style={{fontWeight:700,marginBottom:4}}>Notes</div>
+        <div>{job.notes}</div>
+      </div>}
+      {/* Expiry */}
+      <div style={{background:"#fef3e2",border:"1px solid #f5c060",borderRadius:6,padding:"12px 16px",marginBottom:24,fontSize:12,color:"#7a4500"}}>
+        <strong>This quotation is only valid until {fmt(expiryDate)}.</strong> Please contact us before this date to confirm your order. Prices may be subject to change after expiry.
+      </div>
+      <div style={{fontSize:11,color:"#888",marginBottom:8}}>All prices exclude VAT. Payment terms: 30 days from invoice.</div>
+      <div style={{marginTop:32,fontSize:10,color:"#bbb",borderTop:"1px solid #eee",paddingTop:12,display:"flex",justifyContent:"space-between"}}>
+        <span>{COMPANY} · Registered in England & Wales</span>
+        <span>Quotation {job.job_ref} · {fmt(quoteDate)} · {VERSION}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── MONDAY REPORT ─────────────────────────────────────────────────────────────
+function MondayReport({jobs,onClose}){
+  useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
+  return(
+    <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
+      <div className="no-print" style={{display:"flex",gap:10,alignItems:"center",marginBottom:20,padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
+      </div>
+      <div style={{borderBottom:"3px solid #c9a84c",paddingBottom:16,marginBottom:20,display:"flex",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
+          <div style={{fontSize:11,color:"#666",marginTop:2}}>{COMPANY_ADDR} · {COMPANY_TEL}</div>
+          <div style={{fontSize:13,fontWeight:600,color:"#666",marginTop:4}}>Monday Morning Production Report</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:13,color:"#666"}}>{fmt(todayStr())}</div>
+          <div style={{fontSize:13,color:"#666",marginTop:2}}>{jobs.length} jobs in production</div>
+        </div>
+      </div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr style={{background:"#0f2a4a",color:"#fff"}}>{["Job Ref","Customer","PO Number","Description","Due Date","Value","Priority"].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left"}}>{h}</th>)}</tr></thead>
+        <tbody>{jobs.map(j=><tr key={j.id} style={{borderBottom:"1px solid #eee",...(isOverdue(j)?{background:"#fff5f5"}:{})}}><td style={{padding:"8px 12px",fontWeight:600}}>{j.job_ref}</td><td style={{padding:"8px 12px"}}>{j.customer_name}</td><td style={{padding:"8px 12px",color:"#666"}}>{j.po_number||"—"}</td><td style={{padding:"8px 12px"}}>{j.description}</td><td style={{padding:"8px 12px",color:isOverdue(j)?"#b83030":"#333",fontWeight:isOverdue(j)?700:400}}>{fmt(j.due_date)}</td><td style={{padding:"8px 12px",fontWeight:600}}>{fmtGBP(lineTotal(j.lines))}</td><td style={{padding:"8px 12px"}}>{j.priority}</td></tr>)}</tbody>
+      </table>
+      <div style={{marginTop:16,fontWeight:700,textAlign:"right",fontSize:13}}>Total: {fmtGBP(jobs.reduce((a,j)=>a+lineTotal(j.lines),0))}</div>
+      <div style={{marginTop:40,fontSize:10,color:"#bbb",borderTop:"1px solid #eee",paddingTop:10}}>{COMPANY} · {COMPANY_ADDR} · {COMPANY_TEL} · {VERSION}</div>
+    </div>
+  );
+}
+
+// ── PRINT JOB SHEET ───────────────────────────────────────────────────────────
+function PrintSheet({job,onClose}){
+  const[drawingUrls,setDrawingUrls]=useState([]);
+  useEffect(()=>{
+    async function loadDrawings(){
+      const{data}=await supabase.from("job_files").select("*").eq("job_id",job.id).eq("category","Drawing");
+      if(data&&data.length>0){
+        const urls=[];
+        for(const f of data){
+          const{data:sd}=await supabase.storage.from("job-files").createSignedUrl(f.file_path,3600);
+          if(sd?.signedUrl)urls.push({url:sd.signedUrl,name:f.file_name});
+        }
+        setDrawingUrls(urls);
+      }
+    }
+    if(job.id)loadDrawings();
+    const t=setTimeout(()=>window.print(),600);
+    return()=>clearTimeout(t);
+  },[]);
+
+  async function openDrawings(){
+    for(const d of drawingUrls){
+      const w=window.open(d.url,"_blank");
+      await new Promise(r=>setTimeout(r,800));
+    }
+  }
+
+  return(
+    <div style={{background:"#fff",minHeight:"100vh",padding:"24px 32px",fontFamily:"Arial,sans-serif",color:"#000",maxWidth:760,margin:"0 auto"}}>
+      <div className="no-print" style={{display:"flex",gap:10,marginBottom:20,alignItems:"center",padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy</span>
+        {drawingUrls.length>0&&<button onClick={openDrawings} style={{background:"#c9a84c",color:"#0f2a4a",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontWeight:700}}>📐 Open {drawingUrls.length} Drawing{drawingUrls.length>1?"s":""} to Print</button>}
+      </div>
+      {/* Header */}
+      <div style={{borderBottom:"3px solid #0f2a4a",paddingBottom:16,marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
+          <div style={{fontSize:10,color:"#666",marginTop:2}}>{COMPANY_ADDR}</div>
+          <div style={{fontSize:10,color:"#666"}}>{COMPANY_TEL}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:10,color:"#888",letterSpacing:1,textTransform:"uppercase"}}>Job Sheet</div>
+          <div style={{fontSize:24,fontWeight:800,color:"#0f2a4a"}}>{job.job_ref}</div>
+          {job.po_number&&<div style={{fontSize:11,color:"#666"}}>Customer PO: {job.po_number}</div>}
+        </div>
+      </div>
+      {/* Client name prominent */}
+      <div style={{background:"#f4f6f9",border:"1px solid #d0d8e4",borderLeft:"4px solid #0f2a4a",borderRadius:6,padding:"12px 16px",marginBottom:20}}>
+        <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Customer</div>
+        <div style={{fontSize:20,fontWeight:700,color:"#0f2a4a"}}>{job.customer_name}</div>
+        {job.contact_name&&<div style={{fontSize:13,color:"#555",marginTop:2}}>Contact: {job.contact_name}</div>}
+      </div>
+      {/* Job details */}
+      <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20,fontSize:12}}>
+        <tbody>
+          {[["Our Ref",job.job_ref],["Customer PO",job.po_number],["Due Date",fmt(job.due_date)],["Drawing No",job.drawing_number],["Drawing Attached",job.drawing_attached?"Yes":"No"],["Status",job.status],["Notes",job.notes]].filter(([,v])=>v).map(([l,v])=>
+            <tr key={l}><td style={{padding:"6px 10px",border:"1px solid #ddd",background:"#f7f7f7",fontWeight:600,width:130}}>{l}</td><td style={{padding:"6px 10px",border:"1px solid #ddd"}}>{v}</td></tr>
+          )}
+        </tbody>
+      </table>
+      {/* Items - NO PRICING */}
+      <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"#0f2a4a"}}>Items to Manufacture</div>
+      <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20,fontSize:12}}>
+        <thead><tr style={{background:"#0f2a4a",color:"#fff"}}><th style={{padding:"7px 10px",textAlign:"left"}}>Description</th><th style={{padding:"7px 10px",textAlign:"center",width:60}}>Qty</th><th style={{padding:"7px 10px",textAlign:"center",width:80}}>Complete</th></tr></thead>
+        <tbody>{(job.lines||[]).map(l=><tr key={l.id} style={{borderBottom:"1px solid #eee",...(l.delivered?{background:"#f8fff8"}:{})}}>
+          <td style={{padding:"8px 10px"}}>{l.desc}{l.delivered?<span style={{color:"#1a7a4a",fontSize:11}}> ✓ Delivered {fmt(l.deliveredDate)}</span>:""}</td>
+          <td style={{padding:"8px 10px",textAlign:"center",fontWeight:600}}>{l.qty}</td>
+          <td style={{padding:"8px 10px",textAlign:"center"}}>☐</td>
+        </tr>)}</tbody>
+      </table>
+      {/* Production stages */}
+      <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"#0f2a4a"}}>Production Stages</div>
+      {(job.stages||[]).length===0&&<div style={{color:"#999",fontSize:12,marginBottom:16}}>No stages defined.</div>}
+      {(job.stages||[]).map(s=><div key={s} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0",borderBottom:"1px solid #eee"}}>
+        <div style={{width:22,height:22,border:"2px solid #0f2a4a",borderRadius:4,background:job.stages_complete?.[s]?"#0f2a4a":"#fff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {job.stages_complete?.[s]&&<span style={{color:"#fff",fontSize:14}}>✓</span>}
+        </div>
+        <span style={{fontSize:13,flex:1}}>{s}</span>
+        <span style={{fontSize:11,color:"#999"}}>By: ________________ Date: ___________</span>
+      </div>)}
+      <div style={{marginTop:36,fontSize:10,color:"#bbb",borderTop:"1px solid #ddd",paddingTop:10,display:"flex",justifyContent:"space-between"}}>
+        <span>{COMPANY} · {COMPANY_ADDR}</span>
+        <span>Job Sheet {job.job_ref} · {VERSION}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── DELIVERY NOTE ─────────────────────────────────────────────────────────────
+function DeliveryNote({job,onClose}){
+  useEffect(()=>{
+    // Add print CSS for 2 copies
+    const style=document.createElement("style");
+    style.id="dn-print-style";
+    style.innerHTML=`@media print{.delivery-copy{page-break-after:always;}.delivery-copy:last-child{page-break-after:auto;}}`;
+    document.head.appendChild(style);
+    const t=setTimeout(()=>window.print(),500);
+    return()=>{clearTimeout(t);const el=document.getElementById("dn-print-style");if(el)el.remove();};
+  },[]);
+  const linesToShow=(job.lines||[]).filter(l=>!l.delivered||(job._partLines&&job._partLines.includes(l.id)));
+  return(
+    <div style={{background:"#fff",minHeight:"100vh",padding:32,fontFamily:"Arial,sans-serif",color:"#000"}}>
+      <div className="no-print" style={{display:"flex",gap:10,alignItems:"center",marginBottom:20,padding:"10px 0",borderBottom:"2px solid #e8ecf2"}}>
+        <button onClick={onClose} style={{background:"#0f2a4a",color:"#fff",border:"none",padding:"8px 18px",cursor:"pointer",borderRadius:4,fontFamily:"Arial,sans-serif",fontSize:13,fontWeight:600}}>← Back</button>
+        <span style={{fontSize:12,color:"#888"}}>This button will not appear on the printed copy — 2 copies will print automatically</span>
+      </div>
+      {[1,2].map(copy=><div key={copy} className="delivery-copy" style={{marginBottom:copy===1?40:0}}>
+      {copy===2&&<div style={{borderTop:"2px dashed #ccc",paddingTop:24,marginBottom:16,fontSize:11,color:"#999",textAlign:"center"}}>✂ Cut here — Copy {copy} of 2</div>}
+      <div style={{borderBottom:"3px solid #c9a84c",paddingBottom:16,marginBottom:24,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:"#0f2a4a"}}>{COMPANY}</div>
+          <div style={{fontSize:11,color:"#666",marginTop:2}}>{COMPANY_ADDR}</div>
+          <div style={{fontSize:11,color:"#666"}}>{COMPANY_TEL} · {COMPANY_EMAIL}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color:"#888",letterSpacing:1,textTransform:"uppercase"}}>Delivery Note</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#0f2a4a"}}>{job.job_ref}</div>
+          {job.po_number&&<div style={{fontSize:12,color:"#666"}}>Customer PO: {job.po_number}</div>}
+          <div style={{fontSize:11,color:"#666"}}>Date: {fmt(todayStr())}</div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24,marginBottom:24}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Deliver To</div>
+          <div style={{fontSize:14,fontWeight:700}}>{job.customer_name}</div>
+          <div style={{fontSize:13,color:"#444",marginTop:2}}>{job.contact_name}</div>
+        </div>
+        <div>
+          <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+            <tbody>{[["Our Ref",job.job_ref],["Customer PO",job.po_number||"—"],["Drawing No",job.drawing_number||"—"],["Drawing Attached",job.drawing_attached?"Yes":"No"]].map(([l,v])=><tr key={l}><td style={{padding:"3px 8px",background:"#f5f5f5",fontWeight:600,width:110}}>{l}</td><td style={{padding:"3px 8px",borderBottom:"1px solid #eee"}}>{v}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </div>
+      <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"#0f2a4a"}}>Items Supplied</div>
+      <table style={{width:"100%",borderCollapse:"collapse",marginBottom:24,fontSize:12}}>
+        <thead><tr style={{background:"#0f2a4a",color:"#fff"}}><th style={{padding:"7px 10px",textAlign:"left"}}>Description</th><th style={{padding:"7px 10px",textAlign:"center",width:60}}>Qty</th><th style={{padding:"7px 10px",textAlign:"center",width:80}}>Received OK</th></tr></thead>
+        <tbody>{(job.lines||[]).map(l=><tr key={l.id} style={{borderBottom:"1px solid #eee"}}><td style={{padding:"8px 10px"}}>{l.desc}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{l.qty}</td><td style={{padding:"8px 10px",textAlign:"center"}}>☐</td></tr>)}</tbody>
+      </table>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:32,marginTop:40}}>
+        <div><div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:20}}>Received by (Customer)</div><div style={{borderBottom:"1px solid #000",marginBottom:6,height:32}}/><div style={{fontSize:11,color:"#888"}}>Name: ________________________________</div><div style={{fontSize:11,color:"#888",marginTop:6}}>Date: ________________________________</div></div>
+        <div><div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:20}}>Despatched by (Riverside)</div><div style={{borderBottom:"1px solid #000",marginBottom:6,height:32}}/><div style={{fontSize:11,color:"#888"}}>Name: ________________________________</div><div style={{fontSize:11,color:"#888",marginTop:6}}>Date: ________________________________</div></div>
+      </div>
+      <div style={{marginTop:40,fontSize:10,color:"#bbb",borderTop:"1px solid #eee",paddingTop:10,textAlign:"center"}}>{COMPANY} · {COMPANY_ADDR} · {COMPANY_TEL} · Delivery Note {job.job_ref} · Copy {copy} of 2 · {VERSION}</div>
+      </div>)}
+    </div>
+  );
+}
+
+
+// ── EMAIL DELIVERY NOTE ──────────────────────────────────────────────────────
+function buildDeliveryNoteHTML(job){
+  const rows=(job.lines||[]).map(l=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">${l.desc||""}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center">${l.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center">${l.delivered?`<span style="color:#1a7a4a">✓ Sent ${fmt(l.deliveredDate)}</span>`:"☐"}</td></tr>`).join("");
+  return`<div style="font-family:Arial,sans-serif;max-width:700px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2><p style="color:#c8d0dc;margin:4px 0 0;font-size:13px">Delivery Note — ${job.job_ref}</p></div><div style="padding:20px 24px"><table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px"><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase;width:120px">Deliver To</td><td style="padding:4px 0;font-weight:700">${job.customer_name}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Contact</td><td style="padding:4px 0">${job.contact_name||"—"}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Our Ref</td><td style="padding:4px 0;font-family:monospace">${job.job_ref}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Customer PO</td><td style="padding:4px 0">${job.po_number||"—"}</td></tr><tr><td style="padding:4px 0;color:#888;font-size:11px;text-transform:uppercase">Date</td><td style="padding:4px 0">${fmt(todayStr())}</td></tr></table><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0f2a4a"><th style="padding:8px 12px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Description</th><th style="padding:8px 12px;text-align:center;color:#c8d0dc;font-size:11px;text-transform:uppercase;width:60px">Qty</th><th style="padding:8px 12px;text-align:center;color:#c8d0dc;font-size:11px;text-transform:uppercase;width:80px">Received</th></tr></thead><tbody>${rows}</tbody></table></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR} · ${COMPANY_TEL}</p></div></div>`;
+}
+
+function EmailDeliveryForm({job,customers,onSend,onCancel}){
+  const cust=customers.find(c=>c.id===job.customer_id);
+  const contacts=(cust?.contacts||[]);
+  const defaultEmail=contacts[0]?.email||"";
+  const[to,setTo]=useState(defaultEmail);
+  const[sending,setSending]=useState(false);
+  return(
+    <div style={{maxWidth:440}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>✉ Email Delivery Note</div>
+      <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>Send delivery note for <strong>{job.job_ref}</strong> by email</div>
+      <FF label="Send To">
+        <input style={S.inp} value={to} onChange={e=>setTo(e.target.value)} placeholder="email@example.com"/>
+      </FF>
+      {contacts.length>1&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        <span style={{fontSize:11,color:C.textLight,alignSelf:"center"}}>Quick select:</span>
+        {contacts.map(ct=>ct.email&&<button key={ct.id} style={{background:C.silverLight,border:`1px solid ${C.border}`,borderRadius:20,padding:"2px 10px",fontSize:11,cursor:"pointer",fontFamily:"inherit",color:C.navy}} onClick={()=>setTo(ct.email)}>{ct.name}</button>)}
+      </div>}
+      <div style={{fontSize:12,color:C.textLight,marginBottom:16}}>The delivery note will be sent as a formatted HTML email.</div>
+      <div style={{display:"flex",gap:10}}>
+        <Btn primary onClick={async()=>{setSending(true);await onSend(to,job);setSending(false);}} disabled={!to||sending}>{sending?"Sending…":"Send Email"}</Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── DELIVERY FLOW ─────────────────────────────────────────────────────────────
+function DeliveryFlow({job,customers,onComplete,onCancel}){
+  const pending=(job.lines||[]).filter(l=>!l.delivered);
+  const prevDelivered=(job.lines||[]).filter(l=>l.delivered);
+  const[selected,setSelected]=useState(pending.map(l=>l.id));
+  const[method,setMethod]=useState("print");
+  const[note,setNote]=useState("");
+  function toggle(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+
+  return(
+    <div style={{minWidth:300,maxWidth:560}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.navy,marginBottom:4}}>📋 Delivery Note</div>
+      <div style={{fontSize:13,color:C.textLight,marginBottom:16}}>Select items being despatched today for <strong>{job.job_ref}</strong></div>
+
+      {/* Previously despatched */}
+      {prevDelivered.length>0&&(
+        <div style={{background:C.successBg,border:`1px solid #90d0a0`,borderRadius:8,padding:12,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.success,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>Previously Despatched</div>
+          {prevDelivered.map(l=>(
+            <div key={l.id} style={{display:"flex",gap:8,padding:"4px 0",fontSize:13,borderBottom:`1px solid #c0e8c8`}}>
+              <span style={{color:C.success}}>✓</span>
+              <span style={{flex:1,color:C.textMid}}>{l.desc||"—"}</span>
+              <span style={{color:C.textLight,fontSize:12}}>×{l.qty}</span>
+              <span style={{color:C.success,fontSize:12,whiteSpace:"nowrap"}}>Sent {fmt(l.deliveredDate)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Select items */}
+      <div style={{fontSize:11,fontWeight:700,color:C.textLight,letterSpacing:0.4,textTransform:"uppercase",marginBottom:8}}>
+        Items to Despatch Today
+      </div>
+      {pending.length===0&&<Em>All items have already been despatched.</Em>}
+      {pending.map(l=>(
+        <div key={l.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:selected.includes(l.id)?C.successBg:C.white,border:`1px solid ${selected.includes(l.id)?"#90d0a0":C.border}`,borderRadius:8,marginBottom:8,cursor:"pointer"}} onClick={()=>toggle(l.id)}>
+          <div style={{width:22,height:22,borderRadius:4,border:`2px solid ${selected.includes(l.id)?C.success:C.border}`,background:selected.includes(l.id)?C.success:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            {selected.includes(l.id)&&<span style={{color:"#fff",fontSize:13,fontWeight:700}}>✓</span>}
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text}}>{l.desc||"—"}</div>
+            <div style={{fontSize:12,color:C.textLight}}>Qty: {l.qty}</div>
+          </div>
+        </div>
+      ))}
+
+      {/* Delivery method */}
+      {selected.length>0&&(
+        <>
+          <div style={{fontSize:11,fontWeight:700,color:C.textLight,letterSpacing:0.4,textTransform:"uppercase",margin:"16px 0 8px"}}>How to Send</div>
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+            {[["print","🖨 Print (2 copies)"],["email","✉ Email"],["both","🖨 + ✉ Both"]].map(([v,label])=>(
+              <button key={v} style={{background:method===v?C.navy:C.white,color:method===v?C.white:C.textMid,border:`1px solid ${method===v?C.navy:C.border}`,borderRadius:20,padding:"6px 14px",fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>setMethod(v)}>{label}</button>
+            ))}
+          </div>
+          <FF label="Note (optional)">
+            <input style={S.inp} value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. driver name, vehicle reg"/>
+          </FF>
+        </>
+      )}
+
+      <div style={{display:"flex",gap:10,marginTop:16}}>
+        <Btn primary onClick={()=>onComplete(job,selected,method)} disabled={selected.length===0}>
+          Confirm & {method==="print"?"Print":method==="email"?"Email":"Print + Email"}
+        </Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── FILE ATTACHMENTS ──────────────────────────────────────────────────────────
+function FileAttachments({job}){
+  const[files,setFiles]=useState([]);
+  const[uploading,setUploading]=useState(false);
+  const[dragOver,setDragOver]=useState(false);
+  const[category,setCategory]=useState("Other");
+  const cats=["Drawing","Purchase Order","Email / Correspondence","Other"];
+
+  useEffect(()=>{if(job.id)loadFiles();},[job.id]);
+
+  async function loadFiles(){
+    const{data}=await supabase.from("job_files").select("*").eq("job_id",job.id).order("uploaded_at",{ascending:false});
+    if(data)setFiles(data);
+  }
+
+  async function uploadFile(file){
+    if(!file)return;
+    setUploading(true);
+    const path=`${job.id}/${Date.now()}_${file.name}`;
+    const{error:upErr}=await supabase.storage.from("job-files").upload(path,file);
+    if(upErr){alert("Upload failed: "+upErr.message);setUploading(false);return;}
+    await supabase.from("job_files").insert([{job_id:job.id,job_ref:job.job_ref,file_name:file.name,file_path:path,file_type:file.type,category}]);
+    await loadFiles();
+    setUploading(false);
+  }
+
+  async function deleteFile(f){
+    await supabase.storage.from("job-files").remove([f.file_path]);
+    await supabase.from("job_files").delete().eq("id",f.id);
+    await loadFiles();
+  }
+
+  async function openFile(f){
+    const{data}=await supabase.storage.from("job-files").createSignedUrl(f.file_path,3600);
+    if(data?.signedUrl)window.open(data.signedUrl,"_blank");
+  }
+
+  function onDrop(e){
+    e.preventDefault();setDragOver(false);
+    const file=e.dataTransfer.files[0];
+    if(file)uploadFile(file);
+  }
+
+  function catIcon(cat){
+    if(cat==="Drawing")return"📐";
+    if(cat==="Purchase Order")return"📄";
+    if(cat==="Email / Correspondence")return"✉️";
+    return"📎";
+  }
+
+  return(
+    <div style={{background:C.silverPale,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:700,fontSize:13,color:C.navy,marginBottom:10}}>Attached Files</div>
+      {/* Category selector */}
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+        {cats.map(c=><button key={c} style={{background:category===c?C.navy:C.white,color:category===c?C.white:C.textMid,border:`1px solid ${category===c?C.navy:C.border}`,borderRadius:20,padding:"3px 10px",fontFamily:"inherit",fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>setCategory(c)}>{c}</button>)}
+      </div>
+      {/* Drop zone */}
+      <div
+        onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+        onDragLeave={()=>setDragOver(false)}
+        onDrop={onDrop}
+        style={{border:`2px dashed ${dragOver?C.accent:C.border}`,borderRadius:8,padding:"16px 12px",textAlign:"center",background:dragOver?"#e8f0fb":C.white,marginBottom:10,cursor:"pointer",transition:"all .2s"}}
+        onClick={()=>document.getElementById("file-upload-"+job.id).click()}
+      >
+        <input id={"file-upload-"+job.id} type="file" style={{display:"none"}} onChange={e=>uploadFile(e.target.files[0])} accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.eml,.msg"/>
+        {uploading
+          ?<div style={{color:C.textLight,fontSize:13}}>Uploading…</div>
+          :<div style={{color:C.textLight,fontSize:13}}>📎 Drag a file here or click to browse<br/><span style={{fontSize:11,marginTop:4,display:"block"}}>PDF, image, Word, Excel, email — will be saved as: {category}</span></div>
+        }
+      </div>
+      {/* File list */}
+      {files.length===0&&<div style={{color:C.textLight,fontSize:13}}>No files attached yet.</div>}
+      {files.map(f=>(
+        <div key={f.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+          <span style={{fontSize:18,flexShrink:0}}>{catIcon(f.category)}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}} onClick={()=>openFile(f)}>{f.file_name}</div>
+            <div style={{fontSize:11,color:C.textLight}}>{f.category} · {f.uploaded_at?new Date(f.uploaded_at).toLocaleDateString("en-GB"):""}</div>
+          </div>
+          <button style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",cursor:"pointer",color:C.accent,fontSize:11,fontFamily:"inherit"}} onClick={()=>openFile(f)}>Open</button>
+          <button style={{background:"none",border:`1px solid ${C.danger}44`,borderRadius:4,padding:"3px 8px",cursor:"pointer",color:C.danger,fontSize:11,fontFamily:"inherit"}} onClick={()=>deleteFile(f)}>Delete</button>
+        </div>
       ))}
     </div>
   );
 }
 
-function Modal({ children, onClose, wide }) {
-  useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-  return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-      zIndex: 3000, overflowY: "auto", padding: "32px 16px"
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: C.white, borderRadius: 10, margin: "0 auto",
-        width: "100%", maxWidth: wide ? 900 : 680, padding: 28,
-        boxShadow: "0 8px 40px rgba(0,0,0,0.25)"
-      }}>
-        {children}
-      </div>
-    </div>
-  );
+
+
+// ── MONTHLY HOURS ─────────────────────────────────────────────────────────────
+const UK_BANK_HOLIDAYS = [
+  "2024-01-01","2024-03-29","2024-04-01","2024-05-06","2024-05-27","2024-08-26","2024-12-25","2024-12-26",
+  "2025-01-01","2025-04-18","2025-04-21","2025-05-05","2025-05-26","2025-08-25","2025-12-25","2025-12-26",
+  "2026-01-01","2026-04-03","2026-04-06","2026-05-04","2026-05-25","2026-08-31","2026-12-25","2026-12-28",
+  "2027-01-01","2027-03-26","2027-03-29","2027-05-03","2027-05-31","2027-08-30","2027-12-27","2027-12-28",
+];
+
+function isBankHoliday(dateStr){ return UK_BANK_HOLIDAYS.includes(dateStr); }
+function parseTime(t){ if(!t)return null; const[h,m]=t.split(":").map(Number); return h*60+m; }
+function calcHours(start,end){ const s=parseTime(start),e=parseTime(end); if(!s||!e||e<=s)return 0; return Math.max(0,(e-s-30)/60); }
+function fmtHours(h){ return h.toFixed(2)+"h"; }
+function monthKey(y,m){ return `${y}-${String(m+1).padStart(2,"0")}`; }
+function monthLabel(y,m){ return new Date(y,m,1).toLocaleString("en-GB",{month:"long",year:"numeric"}); }
+
+function getDaysInMonth(year,month,staffMember){
+  // month is 0-indexed
+  const days=[];
+  const date=new Date(year,month,1);
+  // Get all holiday and sickness dates for this staff member
+  const absences=new Set();
+  (staffMember.entries||[]).forEach(e=>{
+    const from=new Date(e.from);
+    const to=new Date(e.to);
+    const cur=new Date(from);
+    while(cur<=to){ absences.add(cur.toISOString().split("T")[0]); cur.setDate(cur.getDate()+1); }
+  });
+  while(date.getMonth()===month){
+    const dateStr=date.toISOString().split("T")[0];
+    const dow=date.getDay(); // 0=Sun,6=Sat
+    const isBH=isBankHoliday(dateStr);
+    const isAbsent=absences.has(dateStr);
+    const absenceType=(staffMember.entries||[]).find(e=>{ const f=new Date(e.from),t=new Date(e.to); return date>=f&&date<=t; })?.type||null;
+    if(dow!==0){ // exclude Sundays always
+      days.push({
+        date:dateStr,
+        dow,
+        dayName:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dow],
+        isBH,
+        isAbsent,
+        absenceType,
+        isSat:dow===6,
+        isWorking:dow>=1&&dow<=5&&!isBH&&!isAbsent,
+      });
+    }
+    date.setDate(date.getDate()+1);
+  }
+  return days;
 }
 
-function Btn({ children, onClick, color, outline, small, danger, disabled, style: s }) {
-  const bg = disabled ? C.silverLight : danger ? C.danger : outline ? "transparent" : (color || C.accent);
-  const col = outline ? (danger ? C.danger : (color || C.accent)) : C.white;
-  const bdr = danger ? C.danger : outline ? (color || C.accent) : "transparent";
-  return (
-    <button onClick={onClick} disabled={disabled} style={{
-      background: bg, color: col, border: `2px solid ${bdr}`,
-      borderRadius: 6, padding: small ? "5px 12px" : "8px 18px", fontSize: small ? 12 : 14,
-      fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1, ...s
-    }}>{children}</button>
-  );
-}
+function MonthlyHoursView({staffMember,month,year,hoursData,onSave,onEmail}){
+  const days=getDaysInMonth(year,month,staffMember);
+  const[entries,setEntries]=useState(()=>{
+    const key=monthKey(year,month);
+    const saved=hoursData[key]||{};
+    return saved;
+  });
 
-function StatusBadge({ s }) {
-  const map = {
-    "Quote": { bg: "#f0e6cc", col: "#8a5e00" },
-    "In Production": { bg: "#cce5cc", col: "#1a6b1a" },
-    "Part Despatched": { bg: "#cce0f5", col: "#1a4a8a" },
-    "Fully Despatched": { bg: "#e0ccf5", col: "#5a1a8a" },
-    "Ready to Invoice": { bg: "#ffd6cc", col: "#8a2000" },
-    "Invoiced": { bg: "#ddd", col: "#444" },
-    "Needs Review": { bg: "#ffd6cc", col: "#8a2000" },
-  };
-  const m = map[s] || { bg: "#eee", col: "#333" };
-  return <span style={{ background: m.bg, color: m.col, borderRadius: 12, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>{s}</span>;
-}
+  useEffect(()=>{
+    const key=monthKey(year,month);
+    const saved=hoursData[key]||{};
+    setEntries(saved);
+  },[month,year]);
 
-function PrintHeader() {
-  return (
-    <div style={{ borderBottom: `3px solid ${C.navy}`, paddingBottom: 12, marginBottom: 16 }}>
-      <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{COMPANY.name}</div>
-      <div style={{ fontSize: 11, color: C.textLight, marginTop: 2 }}>{COMPANY.address}</div>
-      <div style={{ fontSize: 11, color: C.textLight }}>Tel: {COMPANY.phone} | Email: {COMPANY.email}</div>
-    </div>
-  );
-}
+  function setEntry(dateStr,field,val){
+    setEntries(p=>({...p,[dateStr]:{...(p[dateStr]||{}),start:"",end:"",[field]:val}}));
+  }
 
-function JobSheetDoc({ job, onBack }) {
-  useEffect(() => { window.scrollTo(0, 0); }, []);
-  const version = `v${(job.job_ref || "").replace(/\D/g, "") || "0"}.0`;
-  const rows = [
-    { label: "Our Ref", val: job.job_ref },
-    { label: "Customer PO", val: job.po_number || "—" },
-    { label: "Due Date", val: job.due_date ? new Date(job.due_date).toLocaleDateString("en-GB") : "—" },
-    { label: "Drawing No", val: job.drawing_number || "—" },
-    { label: "Drawing Attached", val: job.drawing_attached ? "Yes" : "No" },
-    { label: "Status", val: job.status },
-    ...(job.notes ? [{ label: "Notes", val: job.notes }] : []),
-  ];
-  return (
+  const totalHours=days.reduce((a,d)=>{
+    const e=entries[d.date]||{};
+    if(!e.start||!e.end)return a;
+    return a+calcHours(e.start,e.end);
+  },0);
+
+  const rate=parseFloat(staffMember.hourly_rate||staffMember.hourlyRate||0);
+  const totalPay=totalHours*rate;
+
+  function save(){
+    const key=monthKey(year,month);
+    onSave(key,entries);
+  }
+
+  return(
     <div>
-      <div className="no-print" style={{ padding: 16, background: C.silverLighter, display: "flex", gap: 12, alignItems: "center", marginBottom: 16, borderRadius: 6 }}>
-        <Btn onClick={onBack} outline small>← Back</Btn>
-        <Btn onClick={() => window.print()} small>🖨 Print Job Sheet</Btn>
-        <span style={{ fontSize: 12, color: C.textLight }}>Back button will not appear on printed copy</span>
-      </div>
-      {/* Print header */}
-      <div style={{ borderBottom: "3px solid #1a2744", paddingBottom: 10, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 900, color: C.navy }}>{COMPANY.name}</div>
-          <div style={{ fontSize: 11, color: C.textLight }}>{COMPANY.address}</div>
-          <div style={{ fontSize: 11, color: C.textLight }}>{COMPANY.phone}</div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1 }}>JOB SHEET</div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: C.navy, lineHeight: 1 }}>{job.job_ref}</div>
-          {job.po_number && <div style={{ fontSize: 12, color: C.textLight }}>Customer PO: {job.po_number}</div>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:14,fontWeight:700,color:C.navy}}>{monthLabel(year,month)}</div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn small onClick={save}>💾 Save</Btn>
+          <Btn small onClick={()=>onEmail(entries,days,totalHours,totalPay)}>✉ Email to Accountant</Btn>
         </div>
       </div>
-      {/* Customer box */}
-      <div style={{ border: `1px solid ${C.border}`, borderRadius: 4, padding: "10px 14px", marginBottom: 16 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, letterSpacing: 1, marginBottom: 4 }}>CUSTOMER</div>
-        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{job.customer_name}</div>
-        {job.contact_name && <div style={{ fontSize: 13, color: C.textLight }}>Contact: {job.contact_name}</div>}
-      </div>
-      {/* Info table - R000025 style */}
-      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16, fontSize: 13 }}>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-              <td style={{ padding: "7px 12px", fontWeight: 700, background: C.silverLighter, width: "30%" }}>{r.label}</td>
-              <td style={{ padding: "7px 12px" }}>{r.val}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {/* Items to manufacture */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Items to Manufacture</div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, border: `1px solid ${C.border}` }}>
+
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
-            <tr style={{ background: C.silverLighter }}>
-              <th style={{ padding: "7px 12px", textAlign: "left", fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Description</th>
-              <th style={{ padding: "7px 12px", textAlign: "center", width: 60, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Qty</th>
-              <th style={{ padding: "7px 12px", textAlign: "left", width: 120, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Drawing No</th>
-              <th style={{ padding: "7px 12px", textAlign: "center", width: 90, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Complete ✓</th>
+            <tr style={{background:C.navy}}>
+              {["Day","Date","Start","Finish","Hours","Notes"].map(h=>(
+                <th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.silver,fontSize:11,fontWeight:700,letterSpacing:0.3,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {(job.lines || []).map((l, i) => (
-              <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                <td style={{ padding: "8px 12px" }}>{l.desc}</td>
-                <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 700 }}>{l.qty}</td>
-                <td style={{ padding: "8px 12px" }}>{l.drawingNo || ""}</td>
-                <td style={{ padding: "8px 12px", textAlign: "center" }}>□</td>
-              </tr>
-            ))}
+            {days.map(d=>{
+              const e=entries[d.date]||{};
+              const hrs=e.start&&e.end?calcHours(e.start,e.end):null;
+              const rowBg=d.isBH?"#fef9e8":d.isAbsent&&d.absenceType==="holiday"?C.successBg:d.isAbsent&&d.absenceType==="sickness"?C.dangerBg:d.isSat?"#f8f8ff":C.white;
+              const textCol=d.isBH?C.warn:d.isAbsent?C.textLight:C.text;
+              return(
+                <tr key={d.date} style={{borderBottom:`1px solid ${C.borderLight}`,background:rowBg}}>
+                  <td style={{padding:"5px 10px",fontWeight:600,color:d.isSat?C.accent:textCol,whiteSpace:"nowrap"}}>{d.dayName}</td>
+                  <td style={{padding:"5px 10px",color:textCol,whiteSpace:"nowrap"}}>{fmt(d.date)}</td>
+                  <td style={{padding:"3px 6px"}}>
+                    {d.isBH?<span style={{fontSize:11,color:C.warn,fontWeight:600}}>Bank Holiday</span>:
+                     d.isAbsent?<span style={{fontSize:11,color:d.absenceType==="holiday"?C.success:C.danger,fontWeight:600}}>{d.absenceType==="holiday"?"Holiday":"Sickness"}</span>:
+                     <input type="time" style={{...S.inp,padding:"3px 6px",fontSize:12,width:90}} value={e.start||""} onChange={ev=>{setEntry(d.date,"start",ev.target.value);}}/>
+                    }
+                  </td>
+                  <td style={{padding:"3px 6px"}}>
+                    {!d.isBH&&!d.isAbsent&&<input type="time" style={{...S.inp,padding:"3px 6px",fontSize:12,width:90}} value={e.end||""} onChange={ev=>{setEntry(d.date,"end",ev.target.value);}}/>}
+                  </td>
+                  <td style={{padding:"5px 10px",fontWeight:700,color:hrs?C.navy:C.textLight,whiteSpace:"nowrap"}}>
+                    {hrs!==null?fmtHours(hrs):"—"}
+                  </td>
+                  <td style={{padding:"3px 6px"}}>
+                    {!d.isBH&&!d.isAbsent&&<input style={{...S.inp,padding:"3px 6px",fontSize:11}} value={e.notes||""} onChange={ev=>{setEntry(d.date,"notes",ev.target.value);}} placeholder="Optional"/>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      {/* Production Stages */}
-      {(job.stages || []).length > 0 ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Production Stages</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {(job.stages || []).map((s, i) => (
-              <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 14px", fontSize: 13, display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ width: 14, height: 14, border: "1px solid #999", display: "inline-block", borderRadius: 2 }}></span>
-                {s}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div style={{ fontSize: 13, color: C.textLight, marginBottom: 16 }}>No stages defined.</div>
-      )}
-      {/* Footer */}
-      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 20, display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textLight }}>
-        <span>{COMPANY.name} · {COMPANY.address}</span>
-        <span>Job Sheet {job.job_ref} · {version}</span>
+
+      <div style={{display:"flex",gap:16,marginTop:12,padding:"10px 0",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+        <div><span style={{fontSize:11,color:C.textLight,textTransform:"uppercase",letterSpacing:0.3}}>Total Hours: </span><span style={{fontSize:16,fontWeight:800,color:C.navy}}>{fmtHours(totalHours)}</span></div>
+        {rate>0&&<div><span style={{fontSize:11,color:C.textLight,textTransform:"uppercase",letterSpacing:0.3}}>Hourly Rate: </span><span style={{fontSize:16,fontWeight:800,color:C.navy}}>{fmtGBP(rate)}</span></div>}
+        {rate>0&&<div><span style={{fontSize:11,color:C.textLight,textTransform:"uppercase",letterSpacing:0.3}}>Total Pay: </span><span style={{fontSize:16,fontWeight:800,color:C.gold}}>{fmtGBP(totalPay)}</span></div>}
+        <div style={{fontSize:11,color:C.textLight,alignSelf:"center"}}>* 30 min lunch deducted per day</div>
       </div>
     </div>
   );
 }
 
-function QuoteDoc({ job, onBack }) {
-  const quoteDate = job.quote_date || job.date_received || todayStr();
-  const expiryDate = addDays(quoteDate, 7);
-  return (
-    <div>
-      <div className="no-print" style={{ padding: 16, background: C.silverLighter, display: "flex", gap: 12, alignItems: "center", marginBottom: 16, borderRadius: 6 }}>
-        <Btn onClick={onBack} outline small>← Back</Btn>
-        <Btn onClick={() => window.print()} small>🖨 Print Quote</Btn>
-        <span style={{ fontSize: 12, color: C.textLight }}>Back button will not appear on printed copy</span>
-      </div>
-      <PrintHeader />
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>QUOTATION</div>
-        <div style={{ textAlign: "right", fontSize: 12 }}>
-          <div><strong>Our Ref:</strong> {job.job_ref}</div>
-          {job.po_number && <div><strong>Customer Ref:</strong> {job.po_number}</div>}
-          <div><strong>Quote Date:</strong> {new Date(quoteDate).toLocaleDateString("en-GB")}</div>
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-        <div style={{ background: C.silverLighter, borderRadius: 6, padding: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>TO</div>
-          <div style={{ fontWeight: 700 }}>{job.customer_name}</div>
-          {job.contact_name && <div style={{ fontSize: 13 }}>{job.contact_name}</div>}
-        </div>
-        <div style={{ background: C.silverLighter, borderRadius: 6, padding: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>FROM</div>
-          <div style={{ fontWeight: 700 }}>{COMPANY.name}</div>
-          <div style={{ fontSize: 12 }}>{COMPANY.address}</div>
-          <div style={{ fontSize: 12 }}>{COMPANY.phone} | {COMPANY.email}</div>
-        </div>
-      </div>
-      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20, fontSize: 13 }}>
-        <thead>
-          <tr style={{ background: C.navy, color: C.white }}>
-            <th style={{ padding: "8px 10px", textAlign: "left" }}>Description</th>
-            <th style={{ padding: "8px 10px", textAlign: "center", width: 60 }}>Qty</th>
-            <th style={{ padding: "8px 10px", textAlign: "right", width: 100 }}>Unit Price</th>
-            <th style={{ padding: "8px 10px", textAlign: "right", width: 100 }}>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(job.lines || []).map((l, i) => (
-            <tr key={i} style={{ background: i % 2 === 0 ? C.white : C.silverLighter }}>
-              <td style={{ padding: "8px 10px" }}>{l.desc}</td>
-              <td style={{ padding: "8px 10px", textAlign: "center" }}>{l.qty}</td>
-              <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmt(l.price)}</td>
-              <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmt((l.qty || 0) * (l.price || 0))}</td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr style={{ background: C.navy, color: C.white, fontWeight: 700 }}>
-            <td colSpan={3} style={{ padding: "8px 10px", textAlign: "right" }}>TOTAL (excl. VAT)</td>
-            <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmt(lineTotal(job.lines))}</td>
-          </tr>
-        </tfoot>
-      </table>
-      {job.notes && <div style={{ marginBottom: 16, fontSize: 13 }}><strong>Notes:</strong> {job.notes}</div>}
-      <div style={{ marginTop: 24, padding: 14, background: C.silverLighter, borderRadius: 6, fontSize: 12, color: C.textLight, borderLeft: `4px solid ${C.navy}` }}>
-        This quote is only valid until <strong>{new Date(expiryDate).toLocaleDateString("en-GB")}</strong>. All prices exclude VAT unless stated. E&amp;OE.
-      </div>
-    </div>
-  );
-}
 
-function PriceSuggestions({ desc, allJobs, onSelect }) {
-  const suggestions = useMemo(() => {
-    if (!desc || desc.length < 3) return [];
-    const d = desc.toLowerCase();
-    const results = [];
-    const seen = new Set();
-    for (const job of allJobs) {
-      for (const line of (job.lines || [])) {
-        if (line.desc && line.desc.toLowerCase().includes(d)) {
-          const key = `${line.desc}|${line.price}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            results.push({ desc: line.desc, qty: line.qty, price: line.price, jobRef: job.job_ref, customer: job.customer_name });
-          }
-        }
-      }
-    }
-    return results.slice(0, 5);
-  }, [desc, allJobs]);
-  if (!suggestions.length) return null;
-  return (
-    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, zIndex: 100, boxShadow: "0 4px 16px rgba(0,0,0,0.12)" }}>
-      <div style={{ padding: "4px 10px", fontSize: 11, color: C.textLight, borderBottom: `1px solid ${C.border}` }}>Previous prices — click to use</div>
-      {suggestions.map((s, i) => (
-        <div key={i} style={{ padding: "8px 10px", cursor: "pointer", fontSize: 12, borderBottom: `1px solid ${C.silverLighter}`, display: "flex", justifyContent: "space-between" }}
-          onMouseDown={() => onSelect(s)}>
-          <span>{s.desc} (x{s.qty}) — {s.jobRef} / {s.customer}</span>
-          <strong style={{ color: C.accent }}>{fmt(s.price)}</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
 
-function LinesEditor({ lines, setLines, allJobs }) {
-  const [activeDesc, setActiveDesc] = useState(null);
-  const upd = (i, f, v) => setLines(ls => ls.map((l, j) => j === i ? { ...l, [f]: v } : l));
-  const add = () => setLines(ls => [...ls, { desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }]);
-  const rem = (i) => setLines(ls => ls.filter((_, j) => j !== i));
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 100px 100px 28px", gap: 6, marginBottom: 4 }}>
-        {["Description", "Qty", "Unit Price", "Drawing No", ""].map(h => (
-          <div key={h} style={{ fontSize: 11, fontWeight: 700, color: C.textLight }}>{h}</div>
-        ))}
-      </div>
-      {lines.map((l, i) => (
-        <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 70px 100px 100px 28px", gap: 6, marginBottom: 6, position: "relative" }}>
-          <div style={{ position: "relative" }}>
-            <input value={l.desc || ""} onChange={e => { upd(i, "desc", e.target.value); setActiveDesc(i); }}
-              onFocus={() => setActiveDesc(i)} onBlur={() => setTimeout(() => setActiveDesc(null), 200)}
-              placeholder="Description" style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, boxSizing: "border-box" }} />
-            {activeDesc === i && <PriceSuggestions desc={l.desc} allJobs={allJobs} onSelect={s => { setLines(ls => ls.map((l, j) => j === i ? { ...l, desc: s.desc, price: s.price, qty: s.qty } : l)); setActiveDesc(null); }} />}
-          </div>
-          <input value={l.qty || ""} onChange={e => upd(i, "qty", e.target.value)} type="number" min="1"
-            style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 }} />
-          <input value={l.price || ""} onChange={e => upd(i, "price", e.target.value)} type="number" min="0" step="0.01" placeholder="0.00"
-            style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 }} />
-          <input value={l.drawingNo || ""} onChange={e => upd(i, "drawingNo", e.target.value)} placeholder="Dwg #"
-            style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 }} />
-          <button onClick={() => rem(i)} style={{ background: C.danger, color: C.white, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 16 }}>×</button>
-        </div>
-      ))}
-      <Btn onClick={add} outline small style={{ marginTop: 4 }}>+ Add Line</Btn>
-      {lineTotal(lines) > 0 && (
-        <div style={{ textAlign: "right", fontWeight: 700, fontSize: 15, marginTop: 10, color: C.navy }}>Total: {fmt(lineTotal(lines))}</div>
-      )}
-    </div>
-  );
-}
-
-function StagesEditor({ stages, setStages }) {
-  const PRESETS = ["Laser Cutting", "Cutting", "Bending", "Folding", "Welding", "Grinding", "Drilling", "Punching", "Assembly", "Powder Coat", "Galvanising", "Painting", "QC Check"];
-  const [custom, setCustom] = useState("");
-  return (
-    <div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-        {PRESETS.map(p => {
-          const on = stages.includes(p);
-          return (
-            <button key={p} onClick={() => setStages(s => on ? s.filter(x => x !== p) : [...s, p])} style={{
-              padding: "5px 12px", border: `2px solid ${on ? C.success : C.border}`, borderRadius: 6,
-              background: on ? C.success : "transparent", color: on ? C.white : C.text,
-              cursor: "pointer", fontSize: 12, fontWeight: 600
-            }}>{on ? "✓ " : ""}{p}</button>
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Custom stage…"
-          onKeyDown={e => { if (e.key === "Enter" && custom.trim()) { setStages(s => [...s, custom.trim()]); setCustom(""); } }}
-          style={{ flex: 1, padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 }} />
-        <Btn small onClick={() => { if (custom.trim()) { setStages(s => [...s, custom.trim()]); setCustom(""); } }}>Add</Btn>
-      </div>
-    </div>
-  );
-}
-
-function FileAttachments({ jobId, jobRef, toast, onDrawingUpload }) {
-  const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [category, setCategory] = useState("Drawing");
-  const CATS = ["Drawing", "Purchase Order", "Email / Correspondence", "Other"];
-
-  const load = useCallback(async () => {
-    if (!jobId) return;
-    const { data } = await supabase.from("job_files").select("*").eq("job_id", jobId).order("uploaded_at", { ascending: false });
-    setFiles(data || []);
-  }, [jobId]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const extractDrawingNumber = (filename) => {
-    // Remove file extension and common suffixes to get drawing number
-    return filename.replace(/\.[^/.]+$/, "").replace(/[_-]?(rev|revision|v|ver)\s*\d+$/i, "").trim();
-  };
-
-  const handleFile = async (file) => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      const path = `${jobRef}/${Date.now()}_${file.name}`;
-      const { error: upErr } = await supabase.storage.from("job-files").upload(path, file);
-      if (upErr) throw upErr;
-      await supabase.from("job_files").insert({ job_id: jobId, job_ref: jobRef, file_name: file.name, file_path: path, category, file_type: file.type });
-      toast("File attached");
-      // If it's a drawing, offer to auto-populate drawing number
-      if (category === "Drawing" && onDrawingUpload) {
-        const suggested = extractDrawingNumber(file.name);
-        onDrawingUpload(suggested);
-      }
-      load();
-    } catch (err) { toast("Upload failed: " + err.message, "error"); }
-    setUploading(false);
-  };
-
-  const open = async (f) => {
-    const { data } = await supabase.storage.from("job-files").createSignedUrl(f.file_path, 3600);
-    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-    else toast("Could not open file", "error");
-  };
-
-  const del = async (f) => {
-    await supabase.storage.from("job-files").remove([f.file_path]);
-    await supabase.from("job_files").delete().eq("id", f.id);
-    toast("File removed");
-    load();
-  };
-
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-        {CATS.map(c => (
-          <button key={c} onClick={() => setCategory(c)} style={{
-            padding: "4px 10px", border: `2px solid ${category === c ? C.navy : C.border}`,
-            borderRadius: 6, background: category === c ? C.navy : "transparent",
-            color: category === c ? C.white : C.text, cursor: "pointer", fontSize: 12, fontWeight: 600
-          }}>{c}</button>
-        ))}
-      </div>
-      <div onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }} onDragOver={e => e.preventDefault()}
-        style={{ border: `2px dashed ${C.border}`, borderRadius: 6, padding: 14, textAlign: "center", background: C.silverLighter, marginBottom: 8 }}>
-        <input type="file" onChange={e => handleFile(e.target.files[0])} style={{ display: "none" }} id={`file-${jobId}`} />
-        <label htmlFor={`file-${jobId}`} style={{ cursor: "pointer", fontSize: 13, color: C.textLight }}>
-          {uploading ? "Uploading…" : "📎 Drag file here or click to browse"}
-        </label>
-      </div>
-      {files.map(f => (
-        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: C.silverLighter, borderRadius: 4, marginBottom: 4, fontSize: 13 }}>
-          <span style={{ flex: 1 }}>{f.file_name}</span>
-          <span style={{ fontSize: 11, color: C.textLight, background: "#dde", borderRadius: 10, padding: "2px 8px" }}>{f.category}</span>
-          <Btn small outline onClick={() => open(f)}>Open</Btn>
-          <Btn small danger onClick={() => del(f)}>✕</Btn>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DeliveryNoteFlow({ job, onDone, toast }) {
-  const pendingLines = (job.lines || []).filter(l => !l.despatched);
-  const doneLines = (job.lines || []).filter(l => l.despatched);
-  const [selected, setSelected] = useState(() => pendingLines.map((_, i) => i));
-  const [noteText, setNoteText] = useState("");
-  const [step, setStep] = useState("select");
-  const [dnItems, setDnItems] = useState([]);
-  const [emailAddr, setEmailAddr] = useState("");
-  const [showEmail, setShowEmail] = useState(false);
-
-  const toggle = (i) => setSelected(s => s.includes(i) ? s.filter(x => x !== i) : [...s, i]);
-
-  const confirm = async () => {
-    const going = pendingLines.filter((_, i) => selected.includes(i));
-    if (!going.length) { toast("Select at least one item", "error"); return; }
-    const now = todayStr();
-    const updatedLines = (job.lines || []).map(l => {
-      const match = going.find(g => g.desc === l.desc && String(g.qty) === String(l.qty));
-      return match && !l.despatched ? { ...l, despatched: true, despatchDate: now } : l;
-    });
-    const allDone = updatedLines.every(l => l.despatched);
-    const newStatus = allDone ? "Fully Despatched" : "Part Despatched";
-    await supabase.from("jobs").update({ lines: updatedLines, status: newStatus }).eq("id", job.id);
-    setDnItems(going);
-    setStep("send");
-  };
-
-  const doPrint = () => {
-    const itemsHtml = dnItems.map(l =>
-      `<tr><td style="padding:8px 10px">${l.desc}</td><td style="padding:8px 10px;text-align:center">${l.qty}</td><td style="padding:8px 10px">${l.drawingNo || ""}</td><td style="padding:8px 10px;text-align:center"></td></tr>`
-    ).join("");
-    const copy = (n, t) => `
-      <div style="page-break-after:${n < t ? "always" : "auto"};padding-bottom:20px">
-        <div style="border-bottom:3px solid #1a2744;padding-bottom:12px;margin-bottom:16px">
-          <strong style="font-size:18px;color:#1a2744">${COMPANY.name}</strong><br>
-          <span style="font-size:11px;color:#666">${COMPANY.address}</span><br>
-          <span style="font-size:11px;color:#666">Tel: ${COMPANY.phone} | ${COMPANY.email}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-bottom:16px">
-          <div><strong style="font-size:18px">DELIVERY NOTE</strong><br><span style="font-size:11px;color:#666">Copy ${n} of ${t}</span></div>
-          <div style="text-align:right;font-size:12px">
-            <div><strong>Our Ref:</strong> ${job.job_ref}</div>
-            ${job.po_number ? `<div><strong>Customer PO:</strong> ${job.po_number}</div>` : ""}
-            <div><strong>Date:</strong> ${new Date().toLocaleDateString("en-GB")}</div>
-          </div>
-        </div>
-        ${noteText ? `<div style="background:#fffbe6;border:1px solid #f0d060;border-radius:6px;padding:10px;margin-bottom:12px;font-size:13px"><strong>Note:</strong> ${noteText}</div>` : ""}
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead><tr style="background:#1a2744;color:#fff">
-            <th style="padding:8px 10px;text-align:left">Description</th>
-            <th style="padding:8px 10px;text-align:center;width:60px">Qty</th>
-            <th style="padding:8px 10px;text-align:left;width:100px">Drawing No</th>
-            <th style="padding:8px 10px;text-align:center;width:80px">Received ✓</th>
-          </tr></thead>
-          <tbody>${itemsHtml}</tbody>
-        </table>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
-          <div><div style="font-size:12px;font-weight:600;margin-bottom:24px">Received by (Customer):</div><div style="border-bottom:1px solid #1a2744;margin-bottom:8px"></div><div style="font-size:11px;color:#666">Name: _________________________ Date: ___________</div></div>
-          <div><div style="font-size:12px;font-weight:600;margin-bottom:24px">Authorised by (Riverside):</div><div style="border-bottom:1px solid #1a2744;margin-bottom:8px"></div><div style="font-size:11px;color:#666">Name: _________________________ Date: ___________</div></div>
-        </div>
-      </div>`;
-    const w = window.open("", "_blank");
-    w.document.write(`<!DOCTYPE html><html><head><title>Delivery Note - ${job.job_ref}</title><style>body{font-family:Arial,sans-serif;margin:20px}</style></head><body>${copy(1,2)}<div style="border-top:2px dashed #aaa;margin:20px 0;text-align:center;font-size:11px;color:#aaa">✂ CUT HERE</div>${copy(2,2)}</body></html>`);
-    w.document.close();
-    w.print();
-  };
-
-  if (step === "send") {
-    return (
-      <div>
-        <div style={{ fontWeight: 700, marginBottom: 12, color: C.success }}>✅ Items marked as despatched</div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-          <Btn onClick={() => { doPrint(); onDone(); }}>🖨 Print (2 copies)</Btn>
-          <Btn outline onClick={() => setShowEmail(true)}>✉ Email Instead</Btn>
-          <Btn outline onClick={() => { doPrint(); setShowEmail(true); }}>🖨 + ✉ Both</Btn>
-          <Btn outline onClick={onDone}>Skip — do later</Btn>
-        </div>
-        {showEmail && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input value={emailAddr} onChange={e => setEmailAddr(e.target.value)} placeholder="Email address…"
-              style={{ padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, width: 260 }} />
-            <Btn small onClick={() => { toast("Email functionality requires email service setup"); onDone(); }}>Send</Btn>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      {doneLines.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>PREVIOUSLY DESPATCHED</div>
-          {doneLines.map((l, i) => (
-            <div key={i} style={{ display: "flex", gap: 10, padding: "6px 10px", background: "#e8f5e9", borderRadius: 4, marginBottom: 4, fontSize: 13 }}>
-              <span style={{ color: C.success }}>✓</span>
-              <span style={{ flex: 1 }}>{l.desc} × {l.qty}</span>
-              <span style={{ fontSize: 11, color: C.textLight }}>{l.despatchDate ? new Date(l.despatchDate).toLocaleDateString("en-GB") : ""}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {pendingLines.length === 0 ? (
-        <div style={{ color: C.textLight, fontSize: 14 }}>All items have already been despatched.</div>
-      ) : (
-        <>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>SELECT ITEMS GOING TODAY</div>
-          {pendingLines.map((l, i) => (
-            <div key={i} onClick={() => toggle(i)} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px", background: selected.includes(i) ? "#e8f5e9" : C.silverLighter, borderRadius: 4, marginBottom: 4, cursor: "pointer" }}>
-              <input type="checkbox" checked={selected.includes(i)} onChange={() => toggle(i)} onClick={e => e.stopPropagation()} />
-              <span style={{ flex: 1, fontSize: 13 }}>{l.desc}</span>
-              <span style={{ fontSize: 12, color: C.textLight }}>× {l.qty}</span>
-            </div>
-          ))}
-          <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Optional note (driver, vehicle…)"
-            style={{ width: "100%", padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, boxSizing: "border-box", margin: "10px 0" }} />
-          <Btn onClick={confirm} disabled={!selected.length}>Confirm & Create Delivery Note</Btn>
-        </>
-      )}
-    </div>
-  );
-}
-
-function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
-  const isNew = !job;
-  const blank = { customer_id: "", customer_name: "", contact_id: "", contact_name: "", description: "", po_number: "", status: "In Production", priority: "Normal", quote_ref: "", quote_status: "N/A", quote_date: todayStr(), lines: [{ desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }], stages: [], stages_complete: {}, drawing_number: "", drawing_attached: false, date_received: todayStr(), due_date: "", invoice_ref: "", notes: "" };
-  const [form, setForm] = useState(isNew ? blank : { ...blank, ...job });
-  const [lines, setLines] = useState((isNew ? blank : job).lines || [{ desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }]);
-  const [stages, setStages] = useState((isNew ? blank : job).stages || []);
-  const [laserPrompt, setLaserPrompt] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const selCustomer = customers.find(c => c.id === form.customer_id);
-  const contacts = selCustomer?.contacts || [];
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const pickCustomer = (id) => {
-    const c = customers.find(x => x.id === id);
-    set("customer_id", id);
-    set("customer_name", c?.name || "");
-    set("contact_id", "");
-    set("contact_name", "");
-    if (c?.name === "Tara Signs") setLaserPrompt(true);
-  };
-
-  const save = async () => {
-    if (!form.customer_name) { toast("Customer is required", "error"); return; }
-    setSaving(true);
-    try {
-      const payload = { ...form, lines, stages, stages_complete: form.stages_complete || {} };
-      if (isNew) {
-        const { data: cnt } = await supabase.rpc("increment_job_counter");
-        payload.job_ref = `R${String(cnt).padStart(6, "0")}`;
-      }
-      delete payload.id;
-      const { error } = isNew
-        ? await supabase.from("jobs").insert(payload)
-        : await supabase.from("jobs").update(payload).eq("id", job.id);
-      if (error) throw error;
-      toast(isNew ? `Job ${payload.job_ref} created` : "Job updated");
-      onSave();
-    } catch (e) { toast("Save failed: " + e.message, "error"); }
-    setSaving(false);
-  };
-
-  const inp = { padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
-  const lbl = { fontSize: 12, fontWeight: 600, color: C.textLight, marginBottom: 4, display: "block" };
-
-  return (
-    <Modal onClose={onClose} wide>
-      {laserPrompt && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: C.white, borderRadius: 10, padding: 28, maxWidth: 380, textAlign: "center" }}>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Tara Signs Order</div>
-            <div style={{ fontSize: 14, marginBottom: 20, color: C.textLight }}>Is laser cutting required for this order?</div>
-            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-              <Btn onClick={() => { setStages(s => s.includes("Laser Cutting") ? s : ["Laser Cutting", ...s]); setLaserPrompt(false); }}>Yes</Btn>
-              <Btn outline onClick={() => setLaserPrompt(false)}>No</Btn>
-            </div>
-          </div>
-        </div>
-      )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>{isNew ? "New Job" : `Edit ${job.job_ref}`}</div>
-        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>×</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-        <div>
-          <label style={lbl}>Customer *</label>
-          <select value={form.customer_id} onChange={e => pickCustomer(e.target.value)} style={inp}>
-            <option value="">Select customer…</option>
-            {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={lbl}>Contact</label>
-          <select value={form.contact_id} onChange={e => { const ct = contacts.find(c => c.id === e.target.value); set("contact_id", e.target.value); set("contact_name", ct?.name || ""); }} style={inp}>
-            <option value="">Select contact…</option>
-            {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={lbl}>PO Number</label>
-          <input value={form.po_number || ""} onChange={e => set("po_number", e.target.value)} style={inp} placeholder="Customer PO #" />
-        </div>
-        <div>
-          <label style={lbl}>Status</label>
-          <select value={form.status} onChange={e => set("status", e.target.value)} style={inp}>
-            {["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced", "Needs Review"].map(s => <option key={s}>{s}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={lbl}>Priority</label>
-          <select value={form.priority} onChange={e => set("priority", e.target.value)} style={inp}>
-            {["Low", "Normal", "High", "Urgent"].map(p => <option key={p}>{p}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={lbl}>Date Received</label>
-          <input type="date" value={form.date_received || ""} onChange={e => set("date_received", e.target.value)} style={inp} />
-        </div>
-        <div>
-          <label style={lbl}>Due Date</label>
-          <input type="date" value={form.due_date || ""} onChange={e => set("due_date", e.target.value)} style={inp} />
-        </div>
-        <div>
-          <label style={lbl}>Quote Date</label>
-          <input type="date" value={form.quote_date || ""} onChange={e => set("quote_date", e.target.value)} style={inp} />
-        </div>
-        <div>
-          <label style={lbl}>Drawing Number</label>
-          <input value={form.drawing_number || ""} onChange={e => set("drawing_number", e.target.value)} style={inp} placeholder="Drawing ref" />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 20 }}>
-          <input type="checkbox" checked={!!form.drawing_attached} onChange={e => set("drawing_attached", e.target.checked)} id="da" />
-          <label htmlFor="da" style={{ fontSize: 13 }}>Drawing attached</label>
-        </div>
-      </div>
-      <div style={{ marginBottom: 14 }}>
-        <label style={lbl}>Notes</label>
-        <textarea value={form.notes || ""} onChange={e => set("notes", e.target.value)} rows={2}
-          style={{ ...inp, resize: "vertical" }} placeholder="Additional notes…" />
-      </div>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Order Lines</div>
-        <LinesEditor lines={lines} setLines={setLines} allJobs={allJobs} />
-      </div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Production Stages</div>
-        <StagesEditor stages={stages} setStages={setStages} />
-      </div>
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <Btn outline onClick={onClose}>Cancel</Btn>
-        <Btn onClick={save} disabled={saving}>{saving ? "Saving…" : isNew ? "Create Job" : "Save Changes"}</Btn>
-      </div>
-    </Modal>
-  );
-}
-
-function CustomerForm({ customer, onSave, onClose, toast }) {
-  const [name, setName] = useState(customer?.name || "");
-  const [contacts, setContacts] = useState(customer?.contacts || []);
-  const [notes, setNotes] = useState(customer?.notes || "");
-  const [saving, setSaving] = useState(false);
-
-  const addContact = () => setContacts(cs => [...cs, { id: Date.now().toString(), name: "", email: "", phone: "" }]);
-  const updContact = (id, f, v) => setContacts(cs => cs.map(c => c.id === id ? { ...c, [f]: v } : c));
-  const remContact = (id) => setContacts(cs => cs.filter(c => c.id !== id));
-
-  const save = async () => {
-    if (!name.trim()) { toast("Name required", "error"); return; }
-    setSaving(true);
-    try {
-      const payload = { name: name.trim(), contacts, notes };
-      const { error } = customer
-        ? await supabase.from("customers").update(payload).eq("id", customer.id)
-        : await supabase.from("customers").insert(payload);
-      if (error) throw error;
-      toast(customer ? "Customer updated" : `${name} added`);
-      onSave();
-    } catch (e) { toast("Save failed: " + e.message, "error"); }
-    setSaving(false);
-  };
-
-  const inp = { padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 };
-  return (
-    <Modal onClose={onClose}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>{customer ? "Edit Customer" : "New Customer"}</div>
-        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>×</button>
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Company Name *</label>
-        <input value={name} onChange={e => setName(e.target.value)} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight }}>Contacts</label>
-          <Btn small onClick={addContact}>+ Add Contact</Btn>
-        </div>
-        {contacts.map(c => (
-          <div key={c.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 28px", gap: 6, marginBottom: 6 }}>
-            <input value={c.name} onChange={e => updContact(c.id, "name", e.target.value)} placeholder="Name" style={inp} />
-            <input value={c.email} onChange={e => updContact(c.id, "email", e.target.value)} placeholder="Email" style={inp} />
-            <input value={c.phone} onChange={e => updContact(c.id, "phone", e.target.value)} placeholder="Phone" style={inp} />
-            <button onClick={() => remContact(c.id)} style={{ background: C.danger, color: C.white, border: "none", borderRadius: 4, cursor: "pointer" }}>×</button>
-          </div>
-        ))}
-      </div>
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Notes</label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-          style={{ ...inp, width: "100%", boxSizing: "border-box", resize: "vertical" }} />
-      </div>
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <Btn outline onClick={onClose}>Cancel</Btn>
-        <Btn onClick={save} disabled={saving}>{saving ? "Saving…" : "Save Customer"}</Btn>
-      </div>
-    </Modal>
-  );
-}
-
-function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast }) {
-  const [job, setJob] = useState(initialJob);
-  const [view, setView] = useState("detail");
-  const [editing, setEditing] = useState(false);
-  const [showDN, setShowDN] = useState(false);
-  const [invoiceRef, setInvoiceRef] = useState("");
-  const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
-
-  const reload = async () => {
-    try {
-      const { data } = await supabase.from("jobs").select("*").eq("id", job.id).single();
-      if (data) setJob(data);
-    } catch (e) { console.error("Reload error", e); }
-  };
-
-  const flow = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced"];
-  const idx = flow.indexOf(job.status);
-
-  const advance = async () => {
-    if (idx < 0 || idx >= flow.length - 1) return;
-    const next = flow[idx + 1];
-    if (next === "Invoiced") { setShowInvoicePrompt(true); return; }
-    await supabase.from("jobs").update({ status: next }).eq("id", job.id);
-    toast("Job moved to " + next);
-    setJob(j => ({ ...j, status: next }));
-    onRefresh();
-  };
-
-  const confirmInvoice = async () => {
-    await supabase.from("jobs").update({ status: "Invoiced", invoice_ref: invoiceRef }).eq("id", job.id);
-    toast("Job invoiced");
-    setJob(j => ({ ...j, status: "Invoiced", invoice_ref: invoiceRef }));
-    setShowInvoicePrompt(false);
-    onRefresh();
-  };
-
-
-  const resetDespatch = async () => {
-    if (!window.confirm("Reset all despatch flags? This will mark all items as not despatched.")) return;
-    const resetLines = (job.lines || []).map(l => ({ ...l, despatched: false, despatchDate: null }));
-    await supabase.from("jobs").update({ lines: resetLines, status: "In Production" }).eq("id", job.id);
-    toast("Despatch flags reset");
-    setJob(j => ({ ...j, lines: resetLines, status: "In Production" }));
-    onRefresh();
-  };
-
-  const tickStage = async (s) => {
-    const sc = { ...(job.stages_complete || {}) };
-    sc[s] = !sc[s];
-    await supabase.from("jobs").update({ stages_complete: sc }).eq("id", job.id);
-    setJob(j => ({ ...j, stages_complete: sc }));
-  };
-
-  const isOverdue = job.due_date && job.status !== "Invoiced" && new Date(job.due_date) < new Date();
-
-  if (view === "jobsheet") return (
-    <div style={{ position: "fixed", inset: 0, background: C.white, zIndex: 2000, overflowY: "auto", padding: "20px 40px" }}>
-      <JobSheetDoc job={job} onBack={() => setView("detail")} />
-    </div>
-  );
-  if (view === "quote") return <QuoteDoc job={job} onBack={() => setView("detail")} />;
-
-  if (editing) return (
-    <JobForm job={job} customers={customers} allJobs={jobs}
-      onSave={() => { reload(); setEditing(false); onRefresh(); }}
-      onClose={() => setEditing(false)} toast={toast} />
-  );
-
-  return (
-    <Modal onClose={onClose} wide>
-      {showInvoicePrompt && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: C.white, borderRadius: 10, padding: 28, maxWidth: 380 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>Enter QB Invoice Reference</div>
-            <input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="QB Invoice #"
-              style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }} />
-            <div style={{ display: "flex", gap: 10 }}>
-              <Btn onClick={confirmInvoice}>Confirm Invoiced</Btn>
-              <Btn outline onClick={() => setShowInvoicePrompt(false)}>Cancel</Btn>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{job.job_ref}</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: C.accent }}>{job.customer_name}</div>
-          {job.contact_name && <div style={{ fontSize: 13, color: C.textLight }}>{job.contact_name}</div>}
-          {job.po_number && <div style={{ fontSize: 13 }}><strong>PO:</strong> {job.po_number}</div>}
-          {job.invoice_ref && <div style={{ fontSize: 13 }}><strong>Invoice Ref:</strong> {job.invoice_ref}</div>}
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "flex-start" }}>
-          <StatusBadge s={job.status} />
-          {job.priority === "Urgent" && <span style={{ background: C.danger, color: C.white, borderRadius: 12, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>URGENT</span>}
-          {isOverdue && <span style={{ background: C.warning, color: C.white, borderRadius: 12, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>OVERDUE</span>}
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: C.textLight }}>×</button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
-        {flow.map((s, i) => (
-          <div key={s} style={{
-            flex: 1, minWidth: 80, textAlign: "center", padding: "6px 4px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-            background: i === idx ? C.navy : i < idx ? C.success : C.silverLighter,
-            color: i <= idx ? C.white : C.textLight
-          }}>{s}</div>
-        ))}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16 }}>
-        {[
-          { label: "Received", val: job.date_received ? new Date(job.date_received).toLocaleDateString("en-GB") : "—" },
-          { label: "Due", val: job.due_date ? new Date(job.due_date).toLocaleDateString("en-GB") : "—" },
-          { label: "Total Value", val: fmt(lineTotal(job.lines)) },
-          { label: "Drawing No", val: job.drawing_number || "—" },
-        ].map(({ label, val }) => (
-          <div key={label} style={{ background: C.silverLighter, borderRadius: 6, padding: "8px 12px" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, marginBottom: 2 }}>{label}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{val}</div>
-          </div>
-        ))}
-      </div>
-
-      {(job.lines || []).length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>ORDER LINES</div>
-          {(job.lines || []).map((l, i) => (
-            <div key={i} style={{
-              display: "grid", gridTemplateColumns: "1fr 60px 80px 100px", gap: 8,
-              padding: "7px 10px", marginBottom: 4,
-              background: l.despatched ? "#e8f5e9" : C.silverLighter, borderRadius: 4, fontSize: 13
-            }}>
-              <span style={{ textDecoration: l.despatched ? "line-through" : "none", color: l.despatched ? C.textLight : C.text }}>
-                {l.despatched ? "✓ " : ""}{l.desc}
-              </span>
-              <span style={{ textAlign: "center" }}>× {l.qty}</span>
-              <span style={{ textAlign: "right" }}>{fmt((l.qty || 0) * (l.price || 0))}</span>
-              <span style={{ fontSize: 11, color: C.textLight }}>
-                {l.despatched && l.despatchDate ? new Date(l.despatchDate).toLocaleDateString("en-GB") : (l.drawingNo || "")}
-              </span>
-            </div>
-          ))}
-          <div style={{ textAlign: "right", fontWeight: 700, color: C.navy, fontSize: 15, padding: "4px 10px" }}>
-            Total: {fmt(lineTotal(job.lines))}
-          </div>
-        </div>
-      )}
-
-      {(job.stages || []).length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>PRODUCTION STAGES</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {(job.stages || []).map(s => {
-              const done = !!(job.stages_complete || {})[s];
-              return (
-                <button key={s} onClick={() => tickStage(s)} style={{
-                  padding: "6px 14px", borderRadius: 16, border: `2px solid ${done ? C.success : C.border}`,
-                  background: done ? C.success : C.white, color: done ? C.white : C.text,
-                  cursor: "pointer", fontSize: 13, fontWeight: 600
-                }}>{done ? "✓ " : ""}{s}</button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {job.notes && (
-        <div style={{ background: "#fffbe6", border: "1px solid #f0d060", borderRadius: 6, padding: 10, marginBottom: 14, fontSize: 13 }}>
-          <strong>Notes:</strong> {job.notes}
-        </div>
-      )}
-
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>ATTACHED FILES</div>
-        <FileAttachments jobId={job.id} jobRef={job.job_ref} toast={toast} onDrawingUpload={async (suggested) => {
-          if (!job.drawing_number || window.confirm(`Set drawing number to "${suggested}"?`)) {
-            await supabase.from("jobs").update({ drawing_number: suggested, drawing_attached: true }).eq("id", job.id);
-            setJob(j => ({ ...j, drawing_number: suggested, drawing_attached: true }));
-            onRefresh();
-          }
-        }} />
-      </div>
-
-      {showDN && (
-        <div style={{ marginBottom: 16, padding: 14, background: C.silverLighter, borderRadius: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 10 }}>📋 Delivery Note</div>
-          <DeliveryNoteFlow job={job} toast={toast} onDone={() => { setShowDN(false); reload(); onRefresh(); }} />
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-        <Btn onClick={() => setEditing(true)} outline small>✏ Edit</Btn>
-        {job.status !== "Invoiced" && idx < flow.length - 1 && !["In Production", "Part Despatched"].includes(job.status) && (
-          <Btn onClick={advance} small color={C.success}>→ {flow[idx + 1]}</Btn>
-        )}
-        {!["Quote", "Invoiced"].includes(job.status) && (
-          <Btn onClick={() => setShowDN(!showDN)} small outline>📋 Delivery Note</Btn>
-        )}
-        <Btn onClick={() => setView("jobsheet")} small outline>🖨 Job Sheet</Btn>
-        {(job.lines || []).some(l => l.despatched) && (
-          <Btn onClick={resetDespatch} small danger outline>↺ Reset Despatch</Btn>
-        )}
-        {job.status === "Quote" && <Btn onClick={() => setView("quote")} small outline>📄 Print Quote</Btn>}
-      </div>
-    </Modal>
-  );
-}
-
-function MonthlyHours({ emp, bankHolidays }) {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth());
-  const [entries, setEntries] = useState({});
-  const [hourlyRate, setHourlyRate] = useState(emp.hourly_rate || "");
-  const [saving, setSaving] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
-  const storageKey = `rsm_hours_${emp.id}_${monthKey}`;
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      setEntries(saved ? JSON.parse(saved) : {});
-    } catch { setEntries({}); }
-  }, [storageKey]);
-
-  const prevMonth = () => {
-    if (month === 0) { setMonth(11); setYear(y => y - 1); }
-    else setMonth(m => m - 1);
-  };
-  const nextMonth = () => {
-    if (month === 11) { setMonth(0); setYear(y => y + 1); }
-    else setMonth(m => m + 1);
-  };
-
-  // Build list of days for this month (Mon-Sat, no Sundays)
-  const getDays = () => {
-    const days = [];
-    const d = new Date(year, month, 1);
-    while (d.getMonth() === month) {
-      const dow = d.getDay();
-      if (dow !== 0) { // exclude Sundays
-        days.push(new Date(d));
-      }
-      d.setDate(d.getDate() + 1);
-    }
-    return days;
-  };
-
-  const days = getDays();
-  const bankHolDates = new Set(bankHolidays.map(h => h.date));
-
-  // Check if a date falls within employee's recorded leave
-  const getLeaveType = (dateStr) => {
-    for (const l of (emp.leave || [])) {
-      if (dateStr >= l.from && dateStr <= l.to) return l.type;
-    }
-    return null;
-  };
-
-  const calcHours = (start, finish) => {
-    if (!start || !finish) return 0;
-    const [sh, sm] = start.split(":").map(Number);
-    const [fh, fm] = finish.split(":").map(Number);
-    const totalMins = (fh * 60 + fm) - (sh * 60 + sm) - 30; // deduct 30 min lunch
-    return Math.max(0, totalMins / 60);
-  };
-
-  const updateEntry = (dateStr, field, val) => {
-    const updated = { ...entries, [dateStr]: { ...(entries[dateStr] || {}), [field]: val } };
-    setEntries(updated);
-  };
-
-  const saveMonth = () => {
-    setSaving(true);
-    try { localStorage.setItem(storageKey, JSON.stringify(entries)); } catch {}
-    setTimeout(() => setSaving(false), 800);
-  };
-
-  const totalHours = days.reduce((sum, d) => {
-    const ds = d.toISOString().split("T")[0];
-    const e = entries[ds];
-    if (!e?.start || !e?.finish) return sum;
-    return sum + calcHours(e.start, e.finish);
-  }, 0);
-
-  const rate = parseFloat(hourlyRate) || 0;
-  const totalPay = totalHours * rate;
-
-  const monthName = new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-
-  const emailAccountant = () => {
-    const lines = days.map(d => {
-      const ds = d.toISOString().split("T")[0];
-      const dayName = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-      const isBH = bankHolDates.has(ds);
-      const leave = getLeaveType(ds);
-      const e = entries[ds];
-      if (isBH) return `${dayName}: Bank Holiday`;
-      if (leave) return `${dayName}: ${leave}`;
-      if (!e?.start || !e?.finish) return `${dayName}: No entry`;
-      const hrs = calcHours(e.start, e.finish);
-      return `${dayName}: ${e.start}–${e.finish} = ${hrs.toFixed(2)} hrs`;
-    }).join("\n");
-
-    const body = `Monthly Hours — ${emp.name} — ${monthName}\n\nHourly Rate: £${rate.toFixed(2)}\n\n${lines}\n\nTOTAL HOURS: ${totalHours.toFixed(2)}\nTOTAL PAY: £${totalPay.toFixed(2)}`;
-    const mailto = `mailto:karen@mmsaccountants.co.uk?subject=Monthly Hours - ${emp.name} - ${monthName}&body=${encodeURIComponent(body)}`;
-    window.open(mailto);
-  };
-
-  const inp = { padding: "5px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12 };
-
-  if (!expanded) {
-    return (
-      <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-        <button onClick={() => setExpanded(true)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
-          ▼ Monthly Hours
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <button onClick={() => setExpanded(false)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
-          ▲ Monthly Hours
-        </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={prevMonth} style={{ background: C.navy, color: C.white, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 14 }}>◀</button>
-          <span style={{ fontSize: 13, fontWeight: 700, color: C.navy, minWidth: 130, textAlign: "center" }}>{monthName}</span>
-          <button onClick={nextMonth} style={{ background: C.navy, color: C.white, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 14 }}>▶</button>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <label style={{ fontSize: 12, color: C.textLight }}>Rate: £</label>
-          <input value={hourlyRate} onChange={e => setHourlyRate(e.target.value)} type="number" step="0.01" placeholder="0.00"
-            style={{ ...inp, width: 70 }} />
-          <span style={{ fontSize: 12, color: C.textLight }}>/hr</span>
-        </div>
-      </div>
-
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
-        <thead>
-          <tr style={{ background: C.navy, color: C.white }}>
-            <th style={{ padding: "6px 8px", textAlign: "left" }}>Day</th>
-            <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Start</th>
-            <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Finish</th>
-            <th style={{ padding: "6px 8px", textAlign: "center", width: 70 }}>Hours</th>
-            <th style={{ padding: "6px 8px", textAlign: "right", width: 80 }}>Pay</th>
-          </tr>
-        </thead>
-        <tbody>
-          {days.map((d, i) => {
-            const ds = d.toISOString().split("T")[0];
-            const isBH = bankHolDates.has(ds);
-            const leave = getLeaveType(ds);
-            const isSat = d.getDay() === 6;
-            const e = entries[ds] || {};
-            const hrs = calcHours(e.start, e.finish);
-            const pay = hrs * rate;
-            const dayLabel = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-
-            let rowBg = i % 2 === 0 ? C.white : C.silverLighter;
-            let statusCell = null;
-
-            if (isBH) {
-              rowBg = "#fff8e1";
-              statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: "#b8860b", fontStyle: "italic" }}>Bank Holiday</td>;
-            } else if (leave) {
-              rowBg = leave === "Holiday" ? "#e8f5e9" : "#fff0f0";
-              statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: leave === "Holiday" ? C.success : C.danger, fontStyle: "italic" }}>{leave}</td>;
-            }
-
-            return (
-              <tr key={ds} style={{ background: rowBg }}>
-                <td style={{ padding: "5px 8px", fontWeight: isSat ? 700 : 400, color: isSat ? C.accent : C.text }}>
-                  {dayLabel}{isSat ? " (OT)" : ""}
-                </td>
-                {statusCell || (
-                  <>
-                    <td style={{ padding: "4px 6px" }}>
-                      <input type="time" value={e.start || ""} onChange={ev => updateEntry(ds, "start", ev.target.value)}
-                        style={{ ...inp, width: "100%" }} />
-                    </td>
-                    <td style={{ padding: "4px 6px" }}>
-                      <input type="time" value={e.finish || ""} onChange={ev => updateEntry(ds, "finish", ev.target.value)}
-                        style={{ ...inp, width: "100%" }} />
-                    </td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: hrs > 0 ? C.navy : C.textLight }}>
-                      {hrs > 0 ? hrs.toFixed(2) : "—"}
-                    </td>
-                  </>
-                )}
-                {!statusCell && (
-                  <td style={{ padding: "6px 8px", textAlign: "right", color: pay > 0 ? C.success : C.textLight }}>
-                    {pay > 0 ? `£${pay.toFixed(2)}` : "—"}
-                  </td>
-                )}
-                {statusCell && <td style={{ padding: "6px 8px" }}></td>}
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr style={{ background: C.navy, color: C.white, fontWeight: 700 }}>
-            <td colSpan={3} style={{ padding: "8px 10px", textAlign: "right" }}>TOTALS</td>
-            <td style={{ padding: "8px 10px", textAlign: "center" }}>{totalHours.toFixed(2)} hrs</td>
-            <td style={{ padding: "8px 10px", textAlign: "right" }}>£{totalPay.toFixed(2)}</td>
-          </tr>
-        </tfoot>
-      </table>
-
-      <div style={{ display: "flex", gap: 10 }}>
-        <Btn small onClick={saveMonth} disabled={saving}>{saving ? "Saved ✓" : "💾 Save Month"}</Btn>
-        <Btn small outline onClick={emailAccountant}>✉ Email to Accountant</Btn>
-      </div>
-    </div>
-  );
-}
-
-function HRModule({ toast }) {
-  const [employees, setEmployees] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("rsm_hr_employees") || "[]"); } catch { return []; }
+function HoursSection({staffMember,onEmailAccountant}){
+  const now=new Date();
+  const[year,setYear]=useState(now.getFullYear());
+  const[month,setMonth]=useState(now.getMonth());
+  const[hoursData,setHoursData]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem("rsm_hours_"+staffMember.id))||{};}catch{return{};}
   });
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
-  const [leaveForm, setLeaveForm] = useState(null);
-  const [bankHolidays, setBankHolidays] = useState([]);
-  const [showBankHols, setShowBankHols] = useState(false);
-  const HOLIDAY_ALLOWANCE = 20;
+  const[open,setOpen]=useState(false);
 
-  const save = (emps) => {
-    setEmployees(emps);
-    try { localStorage.setItem("rsm_hr_employees", JSON.stringify(emps)); } catch {}
-  };
+  useEffect(()=>{
+    try{localStorage.setItem("rsm_hours_"+staffMember.id,JSON.stringify(hoursData));}catch{}
+  },[hoursData]);
 
-  const holidayYearStart = () => {
-    const now = new Date();
-    const yr = now.getMonth() >= 10 ? now.getFullYear() : now.getFullYear() - 1;
-    return new Date(yr, 10, 1);
-  };
+  function prevMonth(){if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}
+  function nextMonth(){if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}
 
-  const holidayYearEnd = () => {
-    const start = holidayYearStart();
-    return new Date(start.getFullYear() + 1, 10, 0);
-  };
+  const key=monthKey(year,month);
+  const savedEntries=hoursData[key]||{};
+  const days=getDaysInMonth(year,month,staffMember);
+  const totalHours=days.reduce((a,d)=>{const e=savedEntries[d.date]||{};return e.start&&e.end?a+calcHours(e.start,e.end):a;},0);
+  const rate=parseFloat(staffMember.hourly_rate||staffMember.hourlyRate||0);
 
-  useEffect(() => {
-    fetch("https://www.gov.uk/bank-holidays.json")
-      .then(r => r.json())
-      .then(data => {
-        const yrStart = holidayYearStart();
-        const yrEnd = holidayYearEnd();
-        const hols = (data["england-and-wales"]?.events || [])
-          .filter(e => { const d = new Date(e.date); return d >= yrStart && d <= yrEnd; })
-          .sort((a, b) => new Date(a.date) - new Date(b.date));
-        setBankHolidays(hols);
-      })
-      .catch(() => {});
-  }, []);
-
-  const bhDates = new Set(bankHolidays.map(h => h.date));
-
-  const workingDays = (from, to, excludeBankHols = false) => {
-    if (!from || !to) return 0;
-    let count = 0;
-    const cur = new Date(from);
-    const end = new Date(to);
-    while (cur <= end) {
-      const dow = cur.getDay();
-      const ds = cur.toISOString().split("T")[0];
-      if (dow !== 0 && dow !== 6) {
-        if (!(excludeBankHols && bhDates.has(ds))) count++;
-      }
-      cur.setDate(cur.getDate() + 1);
-    }
-    return count;
-  };
-
-  const bankHolsInRange = (from, to) => {
-    if (!from || !to) return 0;
-    let count = 0;
-    const cur = new Date(from);
-    const end = new Date(to);
-    while (cur <= end) {
-      const dow = cur.getDay();
-      const ds = cur.toISOString().split("T")[0];
-      if (dow !== 0 && dow !== 6 && bhDates.has(ds)) count++;
-      cur.setDate(cur.getDate() + 1);
-    }
-    return count;
-  };
-
-  const holidayTaken = (emp) => {
-    const yrStart = holidayYearStart();
-    return (emp.leave || []).filter(l => l.type === "Holiday" && new Date(l.from) >= yrStart)
-      .reduce((s, l) => s + workingDays(l.from, l.to, true), 0);
-  };
-
-  const bankHolsTaken = (emp) => {
-    const yrStart = holidayYearStart();
-    // Count bank holidays that fall within holiday leave entries
-    return (emp.leave || []).filter(l => l.type === "Holiday" && new Date(l.from) >= yrStart)
-      .reduce((s, l) => s + bankHolsInRange(l.from, l.to), 0);
-  };
-
-  const sickDays = (emp) => (emp.leave || []).filter(l => l.type === "Sickness")
-    .reduce((s, l) => s + workingDays(l.from, l.to, false), 0);
-
-  const addEmployee = () => {
-    if (!form.name.trim()) return;
-    save([...employees, { id: Date.now().toString(), ...form, leave: [] }]);
-    setForm({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
-    setShowForm(false);
-    toast("Employee added");
-  };
-
-  const addLeave = () => {
-    if (!leaveForm || !leaveForm.from || !leaveForm.to) return;
-    const emps = employees.map(e => e.id === leaveForm.empId
-      ? { ...e, leave: [...(e.leave || []), { id: Date.now().toString(), type: leaveForm.type, from: leaveForm.from, to: leaveForm.to }] }
-      : e);
-    save(emps);
-    setLeaveForm(null);
-    toast("Leave recorded");
-  };
-
-  const delLeave = (empId, leaveId) => save(employees.map(e => e.id === empId ? { ...e, leave: (e.leave || []).filter(l => l.id !== leaveId) } : e));
-  const delEmployee = (id) => { if (window.confirm("Remove employee?")) save(employees.filter(e => e.id !== id)); };
-
-  const inp = { padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 };
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>HR — Holiday &amp; Sickness</div>
-        <Btn onClick={() => setShowForm(true)}>+ Add Employee</Btn>
-      </div>
-      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 16 }}>
-        Holiday year: 1 Nov – 31 Oct | Personal allowance: {HOLIDAY_ALLOWANCE} days | Bank holidays: separate (see below) | Sickness: unpaid
-      </div>
-
-      {/* Bank Holidays Panel */}
-      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14, marginBottom: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>
-            🏦 UK Bank Holidays {holidayYearStart().getFullYear()}/{holidayYearEnd().getFullYear()} — {bankHolidays.length} days
-          </div>
-          <button onClick={() => setShowBankHols(!showBankHols)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontSize: 12, color: C.textLight }}>
-            {showBankHols ? "Hide" : "Show"}
+  return(
+    <div style={{marginTop:16,borderTop:`1px solid ${C.border}`,paddingTop:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:open?12:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button style={{...S.iconBtn,fontWeight:700}} onClick={()=>setOpen(p=>!p)}>
+            {open?"▲":"▼"} Monthly Hours
           </button>
+          {!open&&totalHours>0&&<span style={{fontSize:12,color:C.navy,fontWeight:600}}>{monthLabel(year,month)}: {fmtHours(totalHours)}{rate>0?" · "+fmtGBP(totalHours*rate):""}</span>}
         </div>
-        {showBankHols && (
-          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 6 }}>
-            {bankHolidays.length === 0 && <div style={{ fontSize: 13, color: C.textLight }}>Loading bank holidays…</div>}
-            {bankHolidays.map((h, i) => {
-              const d = new Date(h.date);
-              const isPast = d < new Date();
-              return (
-                <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", padding: "5px 10px", background: isPast ? C.silverLighter : "#e8f5e9", borderRadius: 4, fontSize: 12 }}>
-                  <span style={{ fontSize: 14 }}>{isPast ? "✓" : "📅"}</span>
-                  <span style={{ flex: 1, color: isPast ? C.textLight : C.text, textDecoration: isPast ? "line-through" : "none" }}>{h.title}</span>
-                  <span style={{ color: C.textLight, fontWeight: 600 }}>{d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {open&&<div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button style={S.iconBtn} onClick={prevMonth}>◀</button>
+          <span style={{fontSize:13,fontWeight:600,color:C.navy,minWidth:140,textAlign:"center"}}>{monthLabel(year,month)}</span>
+          <button style={S.iconBtn} onClick={nextMonth}>▶</button>
+        </div>}
       </div>
-
-      {showForm && (
-        <div style={{ background: C.silverLighter, borderRadius: 8, padding: 16, marginBottom: 20 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 130px 100px", gap: 10, marginBottom: 10 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Full Name</label>
-              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Job Title</label>
-              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Start Date</label>
-              <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Hourly Rate £</label>
-              <input type="number" step="0.01" value={form.hourly_rate} onChange={e => setForm(f => ({ ...f, hourly_rate: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} placeholder="0.00" />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn onClick={addEmployee}>Save Employee</Btn>
-            <Btn outline onClick={() => setShowForm(false)}>Cancel</Btn>
-          </div>
-        </div>
-      )}
-
-      {leaveForm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: C.white, borderRadius: 10, padding: 24, maxWidth: 380, width: "90%" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Add Leave — {employees.find(e => e.id === leaveForm.empId)?.name}</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              {["Holiday", "Sickness"].map(t => (
-                <button key={t} onClick={() => setLeaveForm(f => ({ ...f, type: t }))} style={{
-                  padding: "6px 14px", border: `2px solid ${leaveForm.type === t ? C.navy : C.border}`,
-                  borderRadius: 6, background: leaveForm.type === t ? C.navy : "transparent",
-                  color: leaveForm.type === t ? C.white : C.text, cursor: "pointer", fontSize: 13, fontWeight: 600
-                }}>{t === "Holiday" ? "🌴" : "🤒"} {t}</button>
-              ))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>From</label>
-                <input type="date" value={leaveForm.from || ""} onChange={e => setLeaveForm(f => ({ ...f, from: e.target.value }))} style={inp} />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>To</label>
-                <input type="date" value={leaveForm.to || ""} onChange={e => setLeaveForm(f => ({ ...f, to: e.target.value }))} style={inp} />
-              </div>
-            </div>
-            {leaveForm.from && leaveForm.to && (
-              <div style={{ fontSize: 13, color: C.textLight, marginBottom: 12 }}>Working days: <strong>{workingDays(leaveForm.from, leaveForm.to)}</strong></div>
-            )}
-            <div style={{ display: "flex", gap: 10 }}>
-              <Btn onClick={addLeave}>Save Leave</Btn>
-              <Btn outline onClick={() => setLeaveForm(null)}>Cancel</Btn>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {employees.length === 0 && (
-        <div style={{ textAlign: "center", padding: 40, color: C.textLight }}>No employees added yet. Click + Add Employee to start.</div>
-      )}
-
-      {employees.map(emp => {
-        const taken = holidayTaken(emp);
-        const bhTaken = bankHolsTaken(emp);
-        const remaining = HOLIDAY_ALLOWANCE - taken;
-        const sick = sickDays(emp);
-        const pct = Math.min(100, (taken / HOLIDAY_ALLOWANCE) * 100);
-        const BANK_HOL_ALLOWANCE = 8;
-        return (
-          <div key={emp.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18, marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{emp.name}</div>
-                <div style={{ fontSize: 13, color: C.textLight }}>
-                  {emp.title}{emp.startDate ? ` · Started ${new Date(emp.startDate).toLocaleDateString("en-GB")}` : ""}
-                  {emp.hourly_rate ? ` · £${parseFloat(emp.hourly_rate).toFixed(2)}/hr` : ""}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Btn small onClick={() => setLeaveForm({ empId: emp.id, type: "Holiday", from: todayStr(), to: todayStr() })}>+ Add Leave</Btn>
-                <Btn small danger onClick={() => delEmployee(emp.id)}>Remove</Btn>
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
-              <div style={{ background: C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
-                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>HOLIDAY TAKEN</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{taken}</div>
-                <div style={{ fontSize: 11, color: C.textLight }}>of {HOLIDAY_ALLOWANCE} days</div>
-              </div>
-              <div style={{ background: remaining <= 3 ? "#fff0f0" : "#e8f5e9", borderRadius: 6, padding: "10px 14px" }}>
-                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>REMAINING</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: remaining <= 3 ? C.danger : C.success }}>{remaining}</div>
-                <div style={{ fontSize: 11, color: C.textLight }}>days left</div>
-              </div>
-              <div style={{ background: C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
-                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>BANK HOLS USED</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: bhTaken >= BANK_HOL_ALLOWANCE ? C.danger : C.navy }}>{bhTaken}</div>
-                <div style={{ fontSize: 11, color: C.textLight }}>of {BANK_HOL_ALLOWANCE} days</div>
-              </div>
-              <div style={{ background: sick >= 5 ? "#fff0f0" : C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
-                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>SICK DAYS</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: sick >= 5 ? C.danger : C.navy }}>{sick}</div>
-                <div style={{ fontSize: 11, color: C.textLight }}>total (unpaid)</div>
-              </div>
-            </div>
-            <div style={{ background: "#eee", borderRadius: 4, height: 8, marginBottom: 10, overflow: "hidden" }}>
-              <div style={{ background: pct > 85 ? C.danger : C.accent, width: `${pct}%`, height: "100%", borderRadius: 4 }}></div>
-            </div>
-            {(emp.leave || []).length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>LEAVE HISTORY</div>
-                {[...(emp.leave || [])].sort((a, b) => new Date(b.from) - new Date(a.from)).map(l => {
-                  const bh = l.type === "Holiday" ? bankHolsInRange(l.from, l.to) : 0;
-                  const days = workingDays(l.from, l.to, l.type === "Holiday");
-                  return (
-                    <div key={l.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "5px 10px", background: l.type === "Holiday" ? "#e8f5e9" : "#fff0f0", borderRadius: 4, marginBottom: 3, fontSize: 12 }}>
-                      <span>{l.type === "Holiday" ? "🌴" : "🤒"}</span>
-                      <span style={{ flex: 1 }}>{l.type}: {new Date(l.from).toLocaleDateString("en-GB")} – {new Date(l.to).toLocaleDateString("en-GB")}</span>
-                      <span style={{ color: C.textLight }}>
-                        {days} day{days !== 1 ? "s" : ""}
-                        {bh > 0 && <span style={{ color: "#b8860b", marginLeft: 6 }}>+ {bh} bank hol{bh !== 1 ? "s" : ""}</span>}
-                      </span>
-                      <button onClick={() => delLeave(emp.id, l.id)} style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 16 }}>×</button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <MonthlyHours emp={emp} bankHolidays={bankHolidays} />
-          </div>
-        );
-      })}
+      {open&&<MonthlyHoursView
+        staffMember={staffMember}
+        month={month}
+        year={year}
+        hoursData={hoursData}
+        onSave={async(key,entries)=>{const newData={...hoursData,[key]:entries};setHoursData(newData);try{localStorage.setItem("rsm_hours_"+staffMember.id,JSON.stringify(newData));}catch{}toast_("Hours saved");}}
+        onEmail={(entries,days,totalHours,totalPay)=>onEmailAccountant(entries,days,totalHours,totalPay,monthLabel(year,month))}
+      />}
     </div>
   );
 }
 
-function CustomerDetail({ customer, jobs, onClose, onEdit, onJobClick }) {
-  const custJobs = jobs.filter(j => j.customer_id === customer.id || j.customer_name === customer.name);
-  return (
-    <Modal onClose={onClose} wide>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{customer.name}</div>
-          {customer.notes && <div style={{ fontSize: 13, color: C.textLight, marginTop: 4 }}>{customer.notes}</div>}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn small outline onClick={() => onEdit(customer)}>✏ Edit</Btn>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>×</button>
-        </div>
-      </div>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 8 }}>CONTACTS</div>
-        {(customer.contacts || []).length === 0 && <div style={{ color: C.textLight, fontSize: 13 }}>No contacts added</div>}
-        {(customer.contacts || []).map(c => (
-          <div key={c.id} style={{ display: "flex", gap: 16, padding: "8px 12px", background: C.silverLighter, borderRadius: 6, marginBottom: 6, fontSize: 13 }}>
-            <strong style={{ minWidth: 120 }}>{c.name}</strong>
-            {c.email && <a href={`mailto:${c.email}`} style={{ color: C.accent }}>{c.email}</a>}
-            {c.phone && <span>{c.phone}</span>}
-          </div>
-        ))}
-      </div>
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 8 }}>ORDER HISTORY</div>
-        {custJobs.length === 0 && <div style={{ color: C.textLight, fontSize: 13 }}>No orders yet</div>}
-        {custJobs.map(j => (
-          <div key={j.id} onClick={() => onJobClick(j)} style={{ padding: "10px 14px", background: C.silverLighter, borderRadius: 6, marginBottom: 6, cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <strong style={{ color: C.accent }}>{j.job_ref}</strong>
-              <div style={{ display: "flex", gap: 8 }}>
-                <StatusBadge s={j.status} />
-                <strong>{fmt(lineTotal(j.lines))}</strong>
-              </div>
-            </div>
-            {j.po_number && <div style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number}</div>}
-            {(j.lines || []).map((l, i) => (
-              <div key={i} style={{ fontSize: 12, color: C.textLight }}>• {l.desc} × {l.qty} — {fmt((l.qty || 0) * (l.price || 0))}</div>
-            ))}
-          </div>
-        ))}
-        {custJobs.length > 0 && (
-          <div style={{ textAlign: "right", fontWeight: 700, marginTop: 8, color: C.navy }}>
-            Total business: {fmt(custJobs.reduce((s, j) => s + lineTotal(j.lines), 0))}
-          </div>
-        )}
-      </div>
-    </Modal>
-  );
+// ── HR TRACKER ────────────────────────────────────────────────────────────────
+const HOLIDAY_ALLOWANCE = 28;
+const HOLIDAY_YEAR_START_MONTH = 10; // November = month 10 (0-indexed)
+
+function getHolidayYear() {
+  const now = new Date();
+  const month = now.getMonth(); // 0-indexed
+  const year = now.getFullYear();
+  if (month >= HOLIDAY_YEAR_START_MONTH) {
+    return { start: new Date(year, HOLIDAY_YEAR_START_MONTH, 1), end: new Date(year + 1, HOLIDAY_YEAR_START_MONTH, 0), label: `${year}/${year+1}` };
+  }
+  return { start: new Date(year - 1, HOLIDAY_YEAR_START_MONTH, 1), end: new Date(year, HOLIDAY_YEAR_START_MONTH, 0), label: `${year-1}/${year}` };
 }
 
-function Dashboard({ jobs, onJobClick }) {
-  const [filterStatus, setFilterStatus] = useState(null);
-  const [filterAlert, setFilterAlert] = useState(null); // "overdue" | "invoice" | "tomorrow"
-
-  const pipeline = jobs.filter(j => j.status === "In Production").reduce((a, j) => a + lineTotal(j.lines), 0);
-  const overdueJobs = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date());
-  const invoiceJobs = jobs.filter(j => j.status === "Ready to Invoice");
-  const tomorrowStr = addDays(todayStr(), 1);
-  const tomorrowJobs = jobs.filter(j => j.due_date === tomorrowStr && !["Fully Despatched", "Ready to Invoice", "Invoiced"].includes(j.status));
-  const statuses = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced"];
-
-  const alertJobList = filterAlert === "overdue" ? overdueJobs : filterAlert === "invoice" ? invoiceJobs : filterAlert === "tomorrow" ? tomorrowJobs : null;
-
-  const displayJobs = alertJobList
-    ? alertJobList
-    : filterStatus
-      ? jobs.filter(j => j.status === filterStatus)
-      : [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 10);
-
-  const filteredValue = filterStatus
-    ? jobs.filter(j => j.status === filterStatus).reduce((a, j) => a + lineTotal(j.lines), 0)
-    : null;
-
-  const alertLabels = { overdue: "OVERDUE JOBS", invoice: "READY TO INVOICE", tomorrow: "DUE TOMORROW" };
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, marginBottom: 24 }}>
-        {[
-          { label: "In Production Value", val: fmt(pipeline), color: C.accent, alertKey: null },
-          { label: "Overdue Jobs", val: overdueJobs.length, color: overdueJobs.length > 0 ? C.danger : C.success, alertKey: "overdue" },
-          { label: "Ready to Invoice", val: invoiceJobs.length, color: invoiceJobs.length > 0 ? C.warning : C.success, alertKey: "invoice" },
-          { label: "Due Tomorrow", val: tomorrowJobs.length, color: tomorrowJobs.length > 0 ? C.warning : C.success, alertKey: "tomorrow" },
-        ].map(({ label, val, color, alertKey }) => {
-          const active = filterAlert === alertKey && alertKey !== null;
-          return (
-            <div key={label} onClick={() => { if (alertKey) { setFilterStatus(null); setFilterAlert(active ? null : alertKey); } }}
-              style={{ background: active ? C.navy : C.white, border: `1px solid ${active ? C.navy : C.border}`, borderRadius: 8, padding: 16, cursor: alertKey ? "pointer" : "default", transition: "all 0.15s" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: active ? "rgba(255,255,255,0.7)" : C.textLight, marginBottom: 4, letterSpacing: 0.5 }}>{label.toUpperCase()}</div>
-              <div style={{ fontSize: 26, fontWeight: 900, color: active ? C.white : color }}>{val}</div>
-              {alertKey && <div style={{ fontSize: 10, color: active ? "rgba(255,255,255,0.6)" : C.textLight, marginTop: 2 }}>{active ? "click to clear" : "click to view"}</div>}
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 24 }}>
-        {statuses.map(s => {
-          const active = filterStatus === s;
-          return (
-            <div key={s} onClick={() => { setFilterAlert(null); setFilterStatus(active ? null : s); }} style={{
-              background: active ? C.accent : C.navy, color: C.white, borderRadius: 8, padding: "12px 14px",
-              textAlign: "center", cursor: "pointer", border: active ? `3px solid ${C.white}` : "3px solid transparent",
-              boxShadow: active ? "0 0 0 2px " + C.accent : "none", transition: "all 0.15s"
-            }}>
-              <div style={{ fontSize: 28, fontWeight: 900 }}>{jobs.filter(j => j.status === s).length}</div>
-              <div style={{ fontSize: 10, opacity: 0.85, marginTop: 2 }}>{s}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {(filterStatus || filterAlert) ? (
-        <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>
-            {filterAlert ? alertLabels[filterAlert] : filterStatus.toUpperCase()} — {displayJobs.length} job{displayJobs.length !== 1 ? "s" : ""}
-            {filteredValue > 0 && <span style={{ marginLeft: 12, color: C.accent }}>Total: {fmt(filteredValue)}</span>}
-          </div>
-          <button onClick={() => { setFilterStatus(null); setFilterAlert(null); }} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontSize: 12, color: C.textLight }}>✕ Clear filter</button>
-        </div>
-      ) : (
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.textLight, marginBottom: 10 }}>RECENT JOBS</div>
-      )}
-
-      {displayJobs.map(j => {
-        const isOverdue = j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date();
-        return (
-          <div key={j.id} onClick={() => onJobClick(j)}
-            style={{ padding: "12px 14px", background: C.white, border: `1px solid ${isOverdue ? C.warning : C.border}`, borderRadius: 6, marginBottom: 6, cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <strong style={{ color: C.accent }}>{j.job_ref}</strong>
-                <span style={{ fontWeight: 600 }}>{j.customer_name}</span>
-                {j.po_number && <span style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number}</span>}
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <StatusBadge s={j.status} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>{fmt(lineTotal(j.lines))}</span>
-              </div>
-            </div>
-            {(j.lines || []).map((l, i) => (
-              <div key={i} style={{ fontSize: 12, color: C.textLight }}>
-                {l.despatched ? <span style={{ color: C.success }}>✓ </span> : "• "}
-                {l.desc} × {l.qty}
-                {l.despatched && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function JobsList({ jobs, onJobClick }) {
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("All");
-  const statuses = ["All", "Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced", "Needs Review"];
-  const filtered = jobs.filter(j => {
-    const q = search.toLowerCase();
-    const matchSearch = !q || (j.job_ref || "").toLowerCase().includes(q) || (j.customer_name || "").toLowerCase().includes(q) || (j.po_number || "").toLowerCase().includes(q) || (j.lines || []).some(l => (l.desc || "").toLowerCase().includes(q));
-    return matchSearch && (filterStatus === "All" || j.status === filterStatus);
-  });
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search jobs, customers, PO, items…"
-          style={{ flex: 1, minWidth: 200, padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13 }} />
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13 }}>
-          {statuses.map(s => <option key={s}>{s}</option>)}
-        </select>
-      </div>
-      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 8 }}>{filtered.length} job{filtered.length !== 1 ? "s" : ""}</div>
-      {filtered.map(j => {
-        const isOverdue = j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date();
-        return (
-          <div key={j.id} onClick={() => onJobClick(j)}
-            style={{ padding: "12px 14px", background: C.white, border: `1px solid ${isOverdue ? C.warning : C.border}`, borderRadius: 6, marginBottom: 6, cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <strong style={{ color: C.accent }}>{j.job_ref}</strong>
-                <span style={{ fontWeight: 600 }}>{j.customer_name}</span>
-                {j.po_number && <span style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number}</span>}
-                {j.due_date && <span style={{ fontSize: 12, color: isOverdue ? C.danger : C.textLight }}>Due: {new Date(j.due_date).toLocaleDateString("en-GB")}</span>}
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <StatusBadge s={j.status} />
-                <span style={{ fontWeight: 700 }}>{fmt(lineTotal(j.lines))}</span>
-              </div>
-            </div>
-            {(j.lines || []).map((l, i) => (
-              <div key={i} style={{ fontSize: 12, color: C.textLight }}>
-                {l.despatched ? <span style={{ color: C.success }}>✓ </span> : "• "}
-                {l.desc} × {l.qty}
-                {l.despatched && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function CustomersList({ customers, jobs, onEdit, onCustomerClick }) {
-  const [search, setSearch] = useState("");
-  const filtered = customers.filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()));
-  return (
-    <div>
-      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers…"
-        style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, marginBottom: 14, boxSizing: "border-box" }} />
-      {filtered.map(c => {
-        const custJobs = jobs.filter(j => j.customer_id === c.id || j.customer_name === c.name);
-        const uninvoiced = custJobs.filter(j => j.status === "Ready to Invoice");
-        return (
-          <div key={c.id} onDoubleClick={() => onCustomerClick(c)}
-            style={{ padding: "12px 14px", background: C.white, border: `1px solid ${uninvoiced.length > 0 ? C.warning : C.border}`, borderRadius: 6, marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
-                <div style={{ fontSize: 12, color: C.textLight }}>{(c.contacts || []).length} contact{(c.contacts || []).length !== 1 ? "s" : ""} · {custJobs.length} orders</div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {uninvoiced.length > 0 && <span style={{ background: C.warning, color: C.white, borderRadius: 12, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>⚠ Awaiting Invoice</span>}
-                <Btn small outline onClick={e => { e.stopPropagation(); onEdit(c); }}>✏ Edit</Btn>
-                <Btn small outline onClick={() => onCustomerClick(c)}>View</Btn>
-              </div>
-            </div>
-            {(c.contacts || []).map(ct => (
-              <div key={ct.id} style={{ display: "flex", gap: 12, fontSize: 12, color: C.textLight, marginBottom: 2 }}>
-                <span style={{ fontWeight: 600 }}>{ct.name}</span>
-                {ct.email && <a href={`mailto:${ct.email}`} onClick={e => e.stopPropagation()} style={{ color: C.accent }}>{ct.email}</a>}
-                {ct.phone && <span>{ct.phone}</span>}
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Alerts({ jobs, onJobClick }) {
-  const overdue = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date());
-  const awaitingInvoice = jobs.filter(j => j.status === "Ready to Invoice");
-  const tomorrowStr = addDays(todayStr(), 1);
-  const dueTomorrow = jobs.filter(j => j.due_date === tomorrowStr && !["Fully Despatched", "Ready to Invoice", "Invoiced"].includes(j.status));
-
-  const Section = ({ title, items, color, icon }) => (
-    <div style={{ marginBottom: 24 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 8 }}>{icon} {title} ({items.length})</div>
-      {items.length === 0 && <div style={{ color: C.textLight, fontSize: 13 }}>None — all clear ✓</div>}
-      {items.map(j => (
-        <div key={j.id} onClick={() => onJobClick(j)} style={{ padding: "10px 14px", background: C.white, border: `1px solid ${color}`, borderRadius: 6, marginBottom: 6, cursor: "pointer" }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span><strong style={{ color: C.accent }}>{j.job_ref}</strong> — {j.customer_name}</span>
-            <StatusBadge s={j.status} />
-          </div>
-          {j.po_number && <div style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number}</div>}
-          {j.due_date && <div style={{ fontSize: 12, color }}>Due: {new Date(j.due_date).toLocaleDateString("en-GB")}</div>}
-        </div>
-      ))}
-    </div>
-  );
-
-  return (
-    <div>
-      <Section title="OVERDUE" items={overdue} color={C.danger} icon="🔴" />
-      <Section title="READY TO INVOICE" items={awaitingInvoice} color={C.warning} icon="⚠️" />
-      <Section title="DUE TOMORROW" items={dueTomorrow} color={C.accent} icon="📅" />
-    </div>
-  );
-}
-
-function PriceSearch({ jobs }) {
-  const [q, setQ] = useState("");
-  const results = useMemo(() => {
-    if (q.length < 2) return [];
-    const d = q.toLowerCase();
-    const out = [];
-    for (const job of jobs) {
-      for (const l of (job.lines || [])) {
-        if (l.desc && l.desc.toLowerCase().includes(d)) {
-          out.push({ ...l, jobRef: job.job_ref, customer: job.customer_name, date: job.date_received });
-        }
-      }
+function countDays(entries, type) {
+  const hy = getHolidayYear();
+  return (entries || []).filter(e => e.type === type).reduce((total, e) => {
+    const from = new Date(e.from);
+    const to = new Date(e.to);
+    if (type === "holiday" && (to < hy.start || from > hy.end)) return total;
+    let count = 0;
+    const cur = new Date(Math.max(from, hy.start));
+    const end = new Date(Math.min(to, hy.end));
+    while (cur <= end) {
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) count++;
+      cur.setDate(cur.getDate() + 1);
     }
-    return out.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-  }, [q, jobs]);
+    return total + count;
+  }, 0);
+}
+
+function countSicknessDays(entries) {
+  return (entries || []).filter(e => e.type === "sickness").reduce((total, e) => {
+    const from = new Date(e.from);
+    const to = new Date(e.to);
+    let count = 0;
+    const cur = new Date(from);
+    while (cur <= to) {
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) count++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return total + count;
+  }, 0);
+}
+
+function HRView({ staff, setStaff, hrModal, setHrModal, addLeave, setAddLeave }) {
+  const [editStaff, setEditStaff] = useState(null);
+  const hy = getHolidayYear();
+
+  async function saveStaffMember(member) {
+    const isNew = !member.id;
+    const payload = { name: member.name, role: member.role||"", start_date: member.startDate||member.start_date||null, hourly_rate: parseFloat(member.hourlyRate||member.hourly_rate||0)||null, entries: member.entries||[] };
+    if(isNew){ await supabase.from("staff").insert([payload]); }
+    else { await supabase.from("staff").update(payload).eq("id", member.id); }
+    const{data}=await supabase.from("staff").select("*").order("name");
+    if(data) setStaff(data);
+    setEditStaff(null);
+  }
+
+  async function deleteStaff(id) {
+    await supabase.from("staff").delete().eq("id", id);
+    setStaff(p => p.filter(x => x.id !== id));
+  }
+
+  async function saveLeave(staffId, entry) {
+    const member = staff.find(m => m.id === staffId);
+    if(!member) return;
+    const newEntry = { ...entry, id: "e" + Date.now() };
+    const updatedEntries = [...(member.entries || []), newEntry];
+    await supabase.from("staff").update({ entries: updatedEntries }).eq("id", staffId);
+    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: updatedEntries } : m));
+    setAddLeave(null);
+  }
+
+  async function deleteEntry(staffId, entryId) {
+    const member = staff.find(m => m.id === staffId);
+    if(!member) return;
+    const updatedEntries = (member.entries || []).filter(e => e.id !== entryId);
+    await supabase.from("staff").update({ entries: updatedEntries }).eq("id", staffId);
+    setStaff(p => p.map(m => m.id === staffId ? { ...m, entries: updatedEntries } : m));
+  }
 
   return (
     <div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 14 }}>Price Search</div>
-      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search item descriptions…"
-        style={{ width: "100%", padding: "10px 14px", border: `2px solid ${C.border}`, borderRadius: 8, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }} />
-      {q.length >= 2 && <div style={{ fontSize: 12, color: C.textLight, marginBottom: 8 }}>{results.length} result{results.length !== 1 ? "s" : ""}</div>}
-      {results.map((r, i) => (
-        <div key={i} style={{ padding: "10px 14px", background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 6 }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 14 }}>{r.desc}</span>
-            <strong style={{ color: C.accent }}>{fmt(r.price)} ea</strong>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <h1 style={S.pageH}>HR — Holiday & Sickness Tracker</h1>
+        <Btn onClick={() => setEditStaff({ id: "", name: "", role: "", startDate: "" })}>+ Add Employee</Btn>
+      </div>
+      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 20 }}>
+        Holiday year: {hy.label} (1 Nov — 31 Oct) · Allowance: {HOLIDAY_ALLOWANCE} days per person
+      </div>
+
+      {staff.length === 0 && <Em center>No employees added yet. Click "+ Add Employee" to get started.</Em>}
+
+      {staff.map(m => {
+        const holidayTaken = countDays(m.entries, "holiday");
+        const holidayRemaining = HOLIDAY_ALLOWANCE - holidayTaken;
+        const sickDays = countSicknessDays(m.entries);
+        const sickEntries = (m.entries || []).filter(e => e.type === "sickness");
+        const holidayEntries = (m.entries || []).filter(e => e.type === "holiday");
+        const pct = Math.round((holidayTaken / HOLIDAY_ALLOWANCE) * 100);
+
+        return (
+          <div key={m.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: C.navy }}>{m.name}</div>
+                {m.role && <div style={{ fontSize: 12, color: C.textLight, marginTop: 2 }}>{m.role}</div>}
+                {(m.start_date||m.startDate) && <div style={{ fontSize: 12, color: C.textLight }}>Started: {fmt(m.start_date||m.startDate)}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={S.iconBtn} onClick={() => setAddLeave({ staffId: m.id, staffName: m.name })}>+ Add Leave</button>
+                <button style={S.iconBtn} onClick={() => setEditStaff(m)}>✎ Edit</button>
+                <button style={{ ...S.iconBtn, color: C.danger }} onClick={() => deleteStaff(m.id)}>Delete</button>
+              </div>
+            </div>
+
+            {/* Holiday stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 16 }}>
+              <div style={{ background: C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: C.navy }}>{holidayTaken}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Days Taken</div>
+              </div>
+              <div style={{ background: C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: holidayRemaining < 5 ? C.danger : C.success }}>{holidayRemaining}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Days Remaining</div>
+              </div>
+              <div style={{ background: sickDays > 5 ? C.dangerBg : C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${sickDays > 5 ? C.danger + "44" : C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: sickDays > 5 ? C.danger : C.textMid }}>{sickDays}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Sick Days (all time)</div>
+              </div>
+              <div style={{ background: C.silverPale, borderRadius: 8, padding: "12px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: C.gold }}>{HOLIDAY_ALLOWANCE}</div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600, letterSpacing: 0.3 }}>Total Allowance</div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textLight, marginBottom: 4 }}>
+                <span>Holiday used this year</span><span>{pct}%</span>
+              </div>
+              <div style={{ height: 8, background: C.border, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(pct, 100)}%`, background: pct > 90 ? C.danger : pct > 70 ? C.warn : C.success, borderRadius: 4, transition: "width .3s" }} />
+              </div>
+            </div>
+
+            {/* Holiday entries */}
+            {holidayEntries.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Holiday Records</div>
+                {holidayEntries.sort((a, b) => new Date(b.from) - new Date(a.from)).map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.borderLight}`, fontSize: 13 }}>
+                    <span style={{ background: C.successBg, color: C.success, border: `1px solid #90d0a0`, borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Holiday</span>
+                    <span style={{ color: C.text }}>{fmt(e.from)} — {fmt(e.to)}</span>
+                    {e.notes && <span style={{ color: C.textLight, fontSize: 12, flex: 1 }}>{e.notes}</span>}
+                    <span style={{ color: C.navy, fontWeight: 600, whiteSpace: "nowrap" }}>{e.days} day{e.days !== 1 ? "s" : ""}</span>
+                    <button style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 12 }} onClick={() => deleteEntry(m.id, e.id)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Sickness entries */}
+            {sickEntries.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.danger, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Sickness Records</div>
+                {sickEntries.sort((a, b) => new Date(b.from) - new Date(a.from)).map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.borderLight}`, fontSize: 13 }}>
+                    <span style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.danger}44`, borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Sickness</span>
+                    <span style={{ color: C.text }}>{fmt(e.from)} — {fmt(e.to)}</span>
+                    {e.notes && <span style={{ color: C.textLight, fontSize: 12, flex: 1 }}>{e.notes}</span>}
+                    <span style={{ color: C.danger, fontWeight: 600, whiteSpace: "nowrap" }}>{e.days} day{e.days !== 1 ? "s" : ""}</span>
+                    <button style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 12 }} onClick={() => deleteEntry(m.id, e.id)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Monthly Hours */}
+            <HoursSection staffMember={m} onEmailAccountant={async(entries,days,totalHours,totalPay,monthLbl)=>{
+              const rows=days.map(d=>{
+                const e=entries[d.date]||{};
+                const hrs=e.start&&e.end?calcHours(e.start,e.end):null;
+                return `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${d.dayName}</td><td style="padding:6px 10px;border-bottom:1px solid #eee">${fmt(d.date)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee">${d.isBH?"Bank Holiday":d.isAbsent?(d.absenceType==="holiday"?"Holiday":"Sickness"):(e.start||"—")}</td><td style="padding:6px 10px;border-bottom:1px solid #eee">${d.isBH||d.isAbsent?"":e.end||"—"}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${hrs!==null?fmtHours(hrs):"—"}</td></tr>`;
+              }).join("");
+              const rate=parseFloat(m.hourly_rate||m.hourlyRate||0);
+              const html=`<div style="font-family:Arial,sans-serif;max-width:700px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2><p style="color:#c8d0dc;margin:4px 0 0;font-size:13px">Monthly Hours — ${m.name} — ${monthLbl}</p></div><div style="padding:20px 24px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0f2a4a"><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Day</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Date</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Start</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Finish</th><th style="padding:6px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Hours</th></tr></thead><tbody>${rows}</tbody></table><div style="margin-top:16px;padding:12px 16px;background:#f4f6f9;border-radius:6px"><strong>Total Hours: ${fmtHours(totalHours)}</strong>${rate>0?" &nbsp;|&nbsp; Hourly Rate: "+fmtGBP(rate)+" &nbsp;|&nbsp; Total Pay: "+fmtGBP(totalHours*rate):""}</div></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR}</p></div></div>`;
+              await sendEmail("karen@mmsaccountants.co.uk",`Monthly Hours — ${m.name} — ${monthLbl} — ${COMPANY}`,html);
+              toast_("Hours emailed to Karen at MMS Accountants");
+            }}/>
           </div>
-          <div style={{ fontSize: 12, color: C.textLight }}>
-            Qty: {r.qty} · Total: {fmt((r.qty || 0) * (r.price || 0))} · {r.jobRef} / {r.customer} · {r.date ? new Date(r.date).toLocaleDateString("en-GB") : ""}
+        );
+      })}
+
+      {/* Add/Edit employee modal */}
+      {editStaff && (
+        <Overlay onClose={() => setEditStaff(null)}>
+          <div style={{ maxWidth: 400 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.navy, marginBottom: 16 }}>{editStaff.id ? "Edit Employee" : "Add Employee"}</div>
+            <FF label="Full Name"><input style={S.inp} value={editStaff.name} onChange={e => setEditStaff(p => ({ ...p, name: e.target.value }))} /></FF>
+            <FF label="Role / Job Title"><input style={S.inp} value={editStaff.role || ""} onChange={e => setEditStaff(p => ({ ...p, role: e.target.value }))} /></FF>
+            <FF label="Start Date"><input type="date" style={S.inp} value={editStaff.start_date || editStaff.startDate || ""} onChange={e => setEditStaff(p => ({ ...p, start_date: e.target.value, startDate: e.target.value }))} /></FF>
+            <FF label="Hourly Rate (£)"><input type="number" style={S.inp} value={editStaff.hourly_rate || editStaff.hourlyRate || ""} onChange={e => setEditStaff(p => ({ ...p, hourly_rate: e.target.value, hourlyRate: e.target.value }))} placeholder="e.g. 12.50" step="0.01"/></FF>
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <Btn primary onClick={() => saveStaffMember(editStaff)}>Save</Btn>
+              <Btn ghost onClick={() => setEditStaff(null)}>Cancel</Btn>
+            </div>
           </div>
-        </div>
-      ))}
+        </Overlay>
+      )}
+
+      {/* Add leave modal */}
+      {addLeave && (
+        <Overlay onClose={() => setAddLeave(null)}>
+          <AddLeaveForm staffName={addLeave.staffName} onSave={entry => saveLeave(addLeave.staffId, entry)} onCancel={() => setAddLeave(null)} />
+        </Overlay>
+      )}
     </div>
   );
 }
 
-export default function App() {
-  const [tab, setTab] = useState("dashboard");
-  const [jobs, setJobs] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedJob, setSelectedJob] = useState(null);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [showJobForm, setShowJobForm] = useState(false);
-  const [editCustomer, setEditCustomer] = useState(null);
-  const [showCustomerForm, setShowCustomerForm] = useState(false);
-  const { toasts, add: toast } = useToast();
+function AddLeaveForm({ staffName, onSave, onCancel }) {
+  const [type, setType] = useState("holiday");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [notes, setNotes] = useState("");
 
-  const loadData = useCallback(async () => {
-    const [{ data: j }, { data: c }] = await Promise.all([
-      supabase.from("jobs").select("*").order("created_at", { ascending: false }),
-      supabase.from("customers").select("*").order("name")
-    ]);
-    setJobs(j || []);
-    setCustomers(c || []);
-    setLoading(false);
-  }, []);
+  function calcDays(f, t) {
+    if (!f || !t) return 0;
+    let count = 0;
+    const cur = new Date(f);
+    const end = new Date(t);
+    while (cur <= end) {
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) count++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return count;
+  }
 
-  useEffect(() => { loadData(); }, [loadData]);
-
-  const exportCSV = () => {
-    const headers = ["Job Ref", "Customer", "PO Number", "Status", "Priority", "Date Received", "Due Date", "Total Value", "Drawing No", "Invoice Ref", "Notes"];
-    const rows = jobs.map(j => [j.job_ref, j.customer_name, j.po_number || "", j.status, j.priority, j.date_received || "", j.due_date || "", lineTotal(j.lines).toFixed(2), j.drawing_number || "", j.invoice_ref || "", (j.notes || "").replace(/,/g, ";")]);
-    const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-    a.download = `riverside-jobs-${todayStr()}.csv`;
-    a.click();
-  };
-
-  const TABS = [
-    { id: "dashboard", label: "📊 Dashboard" },
-    { id: "jobs", label: "💼 Jobs" },
-    { id: "customers", label: "👥 Customers" },
-    { id: "alerts", label: "⚠️ Alerts" },
-    { id: "prices", label: "🔍 Prices" },
-    { id: "hr", label: "👤 HR" },
-  ];
-
-  if (loading) return (
-    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ textAlign: "center", color: C.navy }}>
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Loading…</div>
-        <div style={{ fontSize: 13, color: C.textLight }}>Connecting to database</div>
-      </div>
-    </div>
-  );
+  const days = calcDays(from, to);
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "system-ui, sans-serif" }}>
-      <Toasts toasts={toasts} />
-      <div style={{ background: C.navy, color: C.white, padding: "0 20px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0" }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 900, letterSpacing: 0.5 }}>{COMPANY.name}</div>
-            <div style={{ fontSize: 10, opacity: 0.6 }}>Job Management System</div>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Btn small onClick={() => setShowJobForm(true)} color={C.accent}>+ New Job</Btn>
-            <Btn small onClick={() => { setEditCustomer(null); setShowCustomerForm(true); }} outline style={{ borderColor: "rgba(255,255,255,0.4)", color: C.white }}>+ Customer</Btn>
-            <Btn small onClick={exportCSV} outline style={{ borderColor: "rgba(255,255,255,0.4)", color: C.white }}>↓ Export</Btn>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding: "8px 14px", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
-              background: tab === t.id ? "rgba(255,255,255,0.15)" : "transparent",
-              color: tab === t.id ? C.white : "rgba(255,255,255,0.6)",
-              borderBottom: tab === t.id ? `2px solid ${C.white}` : "2px solid transparent",
-            }}>{t.label}</button>
+    <div style={{ maxWidth: 420 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.navy, marginBottom: 4 }}>Add Leave Record</div>
+      <div style={{ fontSize: 13, color: C.textLight, marginBottom: 16 }}>For: <strong>{staffName}</strong></div>
+      <FF label="Type">
+        <div style={{ display: "flex", gap: 8 }}>
+          {[["holiday", "🌴 Holiday"], ["sickness", "🤒 Sickness"]].map(([v, label]) => (
+            <button key={v} style={{ background: type === v ? C.navy : C.white, color: type === v ? C.white : C.textMid, border: `1px solid ${type === v ? C.navy : C.border}`, borderRadius: 20, padding: "6px 16px", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }} onClick={() => setType(v)}>{label}</button>
           ))}
         </div>
+      </FF>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <FF label="From"><input type="date" style={S.inp} value={from} onChange={e => setFrom(e.target.value)} /></FF>
+        <FF label="To"><input type="date" style={S.inp} value={to} onChange={e => setTo(e.target.value)} /></FF>
       </div>
-
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 16px" }}>
-        {tab === "dashboard" && <Dashboard jobs={jobs} onJobClick={setSelectedJob} />}
-        {tab === "jobs" && <JobsList jobs={jobs} onJobClick={setSelectedJob} />}
-        {tab === "customers" && <CustomersList customers={customers} jobs={jobs} onEdit={c => { setEditCustomer(c); setShowCustomerForm(true); }} onCustomerClick={setSelectedCustomer} />}
-        {tab === "alerts" && <Alerts jobs={jobs} onJobClick={setSelectedJob} />}
-        {tab === "prices" && <PriceSearch jobs={jobs} />}
-        {tab === "hr" && <HRModule toast={toast} />}
+      {days > 0 && <div style={{ background: type === "holiday" ? C.successBg : C.dangerBg, border: `1px solid ${type === "holiday" ? "#90d0a0" : C.danger + "44"}`, borderRadius: 6, padding: "8px 14px", fontSize: 13, fontWeight: 600, color: type === "holiday" ? C.success : C.danger, marginBottom: 12 }}>{days} working day{days !== 1 ? "s" : ""} {type === "holiday" ? "(will be deducted from allowance)" : "(sickness — unpaid)"}</div>}
+      <FF label="Notes (optional)"><input style={S.inp} value={notes} onChange={e => setNotes(e.target.value)} placeholder={type === "holiday" ? "e.g. pre-approved, annual leave" : "e.g. back pain, flu"} /></FF>
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <Btn primary onClick={() => onSave({ type, from, to, notes, days })} disabled={!from || !to || days === 0}>Save Record</Btn>
+        <Btn ghost onClick={onCancel}>Cancel</Btn>
       </div>
-
-      {showJobForm && (
-        <JobForm job={null} customers={customers} allJobs={jobs}
-          onSave={() => { setShowJobForm(false); loadData(); }}
-          onClose={() => setShowJobForm(false)} toast={toast} />
-      )}
-      {showCustomerForm && (
-        <CustomerForm customer={editCustomer}
-          onSave={() => { setShowCustomerForm(false); setEditCustomer(null); loadData(); }}
-          onClose={() => { setShowCustomerForm(false); setEditCustomer(null); }} toast={toast} />
-      )}
-      {selectedJob && (
-        <JobDetail job={selectedJob} jobs={jobs} customers={customers}
-          onClose={() => setSelectedJob(null)} onRefresh={loadData} toast={toast} />
-      )}
-      {selectedCustomer && (
-        <CustomerDetail customer={selectedCustomer} jobs={jobs}
-          onClose={() => setSelectedCustomer(null)}
-          onEdit={c => { setEditCustomer(c); setShowCustomerForm(true); setSelectedCustomer(null); }}
-          onJobClick={j => { setSelectedCustomer(null); setSelectedJob(j); }} />
-      )}
     </div>
   );
 }
+
+
+// ── SMALL COMPONENTS ──────────────────────────────────────────────────────────
+function SPill({s,large}){const sc=SC[s]||SC["Invoiced"];return<span style={{background:sc.bg,color:sc.color,border:`1px solid ${sc.border}`,borderRadius:20,padding:large?"5px 14px":"3px 10px",fontSize:large?13:11,fontWeight:600,whiteSpace:"nowrap"}}>{s}</span>;}
+function PPill({p}){const cols={Urgent:{bg:"#fce8e8",color:"#8b0000",border:"#f5b0b0"},High:{bg:C.warnBg,color:C.warn,border:"#f5c060"},Normal:{bg:C.silverPale,color:C.textMid,border:C.border},Low:{bg:C.successBg,color:C.success,border:"#90d0a0"}};const c=cols[p]||cols.Normal;return<span style={{background:c.bg,color:c.color,border:`1px solid ${c.border}`,borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:600}}>{p||"Normal"}</span>;}
+function Ref({children}){return<span style={{background:"#e8f0fb",color:C.navy,border:`1px solid #b0c8e8`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:700,letterSpacing:0.5,fontFamily:"monospace",whiteSpace:"nowrap"}}>{children}</span>;}
+function Tag({children,color}){return<span style={{background:color?`${color}18`:C.silverLight,color:color||C.textMid,border:`1px solid ${color?`${color}44`:C.border}`,borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:500}}>{children}</span>;}
+function Em({children,center}){return<div style={{color:C.textLight,fontSize:13,padding:center?"30px 0":"8px 0",textAlign:center?"center":undefined}}>{children}</div>;}
+function ACard({title,count,color,children}){return<div style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:`4px solid ${color}`,borderRadius:8,padding:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontWeight:700,fontSize:13,color:C.text}}>{title}</span><span style={{background:count>0?`${color}18`:C.silverPale,color:count>0?color:C.textLight,border:`1px solid ${count>0?`${color}44`:C.border}`,borderRadius:20,padding:"2px 10px",fontSize:12,fontWeight:700}}>{count}</span></div>{children}</div>;}
+function ARow({job,onClick,children}){return<div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer"}} onClick={onClick}><Ref>{job.job_ref}</Ref><span style={{fontSize:13,color:C.textMid,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{job.customer_name}</span>{children}</div>;}
+function ALarge({job,onClick,extra}){return<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",flexWrap:"wrap"}} onClick={onClick}><Ref>{job.job_ref}</Ref><span style={{fontSize:13,color:C.text,flex:1,minWidth:100}}>{job.description}</span><span style={{fontSize:12,color:C.textLight}}>{job.customer_name}</span><SPill s={job.status}/><span style={{fontSize:12,color:C.textMid}}>Due {fmt(job.due_date)}</span>{extra&&<span style={{fontSize:13,fontWeight:700,color:C.navy}}>{extra}</span>}</div>;}
+function Btn({children,onClick,primary,ghost,danger,small,disabled}){const base={border:"none",borderRadius:5,fontFamily:"inherit",fontWeight:600,cursor:disabled?"not-allowed":"pointer",padding:small?"5px 12px":"8px 16px",fontSize:small?12:13,letterSpacing:0.2,opacity:disabled?0.5:1};const v=primary?{background:C.navy,color:"#fff"}:danger?{background:C.dangerBg,color:C.danger,border:`1px solid ${C.danger}40`}:ghost?{background:"transparent",color:C.textMid,border:`1px solid ${C.border}`}:{background:C.silverLight,color:C.navy,border:`1px solid ${C.border}`};return<button style={{...base,...v}} onClick={disabled?undefined:onClick}>{children}</button>;}
+function Overlay({children,onClose}){return<div style={{position:"fixed",inset:0,background:"#00000066",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:1000,padding:"20px",overflowY:"auto"}} onClick={onClose}><div style={{background:C.white,border:`1px solid ${C.border}`,borderTop:`4px solid ${C.navy}`,borderRadius:10,padding:28,maxWidth:700,width:"100%",position:"relative",boxShadow:"0 8px 40px #0003",marginTop:"auto",marginBottom:"auto"}} onClick={e=>e.stopPropagation()}><button style={{position:"absolute",top:12,right:14,background:"none",border:"none",color:C.textLight,fontSize:17,cursor:"pointer"}} onClick={onClose}>✕</button>{children}</div></div>;}
+function FF({label,children,full}){return<div style={{marginBottom:12,gridColumn:full?"1 / -1":undefined}}><label style={{display:"block",color:C.textLight,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:4}}>{label}</label>{children}</div>;}
+function Logo(){return<svg width="36" height="36" viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="6" fill={C.navyMid}/><path d="M7 22 L18 10 L29 22" stroke={C.silver} strokeWidth="2.5" fill="none" strokeLinejoin="round"/><rect x="14" y="22" width="8" height="7" fill={C.gold} rx="1"/><line x1="18" y1="22" x2="18" y2="29" stroke={C.navyMid} strokeWidth="1.5"/></svg>;}
+
+const S={
+  pageH:{fontSize:20,fontWeight:700,color:C.navy,margin:"0 0 20px",letterSpacing:0.3},
+  subH:{fontSize:14,fontWeight:700,color:C.textMid,margin:"24px 0 12px",letterSpacing:0.5,textTransform:"uppercase",borderTop:`1px solid ${C.border}`,paddingTop:20},
+  inp:{width:"100%",background:C.white,border:`1px solid ${C.border}`,borderRadius:5,padding:"7px 10px",fontFamily:"inherit",fontSize:13,color:C.text,outline:"none",boxSizing:"border-box"},
+  inp2:{background:C.white,border:`1px solid ${C.border}`,borderRadius:5,padding:"7px 12px",fontFamily:"inherit",fontSize:13,color:C.text,outline:"none",flex:1,minWidth:200},
+  td:{padding:"10px 14px",color:C.text},
+  iconBtn:{background:"none",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px 10px",cursor:"pointer",color:C.textMid,fontSize:12,fontFamily:"inherit",whiteSpace:"nowrap"},
+};
