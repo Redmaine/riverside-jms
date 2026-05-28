@@ -18,7 +18,7 @@ const COMPANY_EMAIL = "info@riversidesheetmetal.co.uk";
 const NOTIFY_EMAIL = "danny.stephb@gmail.com";
 const TARA_DAILY_EMAIL = "info@riversidesheetmetal.co.uk";
 const TARA_NAME = "tara signs";
-const VERSION = "v8.3";
+const VERSION = "v8.4";
 
 const STATUS_FLOW = ["Quote", "In Production", "Ready to Despatch", "Invoiced"];
 const ALL_STATUSES = ["Quote", "In Production", "Part Despatched", "Ready to Despatch", "Invoiced"];
@@ -157,7 +157,7 @@ export default function App(){
 
   async function loadAll(){setLoading(true);await Promise.all([loadJobs(),loadCustomers(),loadStaff()]);setLoading(false);}
   async function loadStaff(){const{data}=await supabase.from("staff").select("*").order("name");if(data)setStaff(data);}
-  async function loadJobs(){const{data}=await supabase.from("jobs").select("*").order("created_at",{ascending:false});if(data)setJobs(data);}
+  async function loadJobs(){const{data}=await supabase.from("jobs").select("*").order("due_date",{ascending:true,nullsFirst:false});if(data)setJobs(data);}
   async function loadCustomers(){const{data}=await supabase.from("customers").select("*").order("name");if(data)setCustomers(data);}
   useMondayReport(jobs);
   useTaraDailyEmail(jobs);
@@ -302,12 +302,16 @@ export default function App(){
     const csv=[hdr,row].map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`${job.job_ref}_${todayStr()}.csv`;a.click();
   }
-  function exportAllCSV(jobList){
+  async function exportAllCSV(jobList){
     const hdr=["Job Ref","Customer","Contact","PO Number","Description","Status","Priority","Received","Due","Total Value","Drawing No","Invoice Ref","Notes"];
     const rows=jobList.map(j=>[j.job_ref,j.customer_name,j.contact_name,j.po_number,j.description,j.status,j.priority,fmt(j.date_received),fmt(j.due_date),fmtGBP(lineTotal(j.lines)),j.drawing_number,j.invoice_ref,j.notes]);
     const csv=[hdr,...rows].map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`riverside_jobs_${todayStr()}.csv`;a.click();
-    toast_("CSV exported");
+    // Also email as backup
+    const tableRows=jobList.map(j=>`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">${j.job_ref}</td><td style="padding:5px 10px;border-bottom:1px solid #eee">${j.customer_name||""}</td><td style="padding:5px 10px;border-bottom:1px solid #eee">${j.status}</td><td style="padding:5px 10px;border-bottom:1px solid #eee">${fmt(j.due_date)}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;font-weight:600">${fmtGBP(lineTotal(j.lines))}</td></tr>`).join("");
+    const html=`<div style="font-family:Arial,sans-serif;max-width:800px"><div style="background:#0f2a4a;padding:20px 24px;border-bottom:3px solid #c9a84c"><h2 style="color:#fff;margin:0;font-size:18px">${COMPANY}</h2><p style="color:#c8d0dc;margin:4px 0 0;font-size:13px">Jobs Data Backup — ${fmt(todayStr())} — ${jobList.length} jobs</p></div><div style="padding:20px 24px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0f2a4a"><th style="padding:8px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Job Ref</th><th style="padding:8px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Customer</th><th style="padding:8px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Status</th><th style="padding:8px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Due</th><th style="padding:8px 10px;text-align:left;color:#c8d0dc;font-size:11px;text-transform:uppercase">Value</th></tr></thead><tbody>${tableRows}</tbody></table><p style="color:#6a7f99;font-size:12px;margin-top:16px">Full CSV attached. Total pipeline: ${fmtGBP(jobList.filter(j=>j.status!=="Invoiced").reduce((a,j)=>a+lineTotal(j.lines),0))}</p></div><div style="background:#f4f6f9;padding:12px 24px;border-top:1px solid #d0d8e4"><p style="color:#6a7f99;font-size:11px;margin:0">${COMPANY} · ${COMPANY_ADDR}</p></div></div>`;
+    await sendEmail(NOTIFY_EMAIL,`Jobs Backup — ${fmt(todayStr())} — ${COMPANY}`,html);
+    toast_("CSV downloaded & backup emailed to Danny");
   }
 
   async function sendMondayReport(){
@@ -661,6 +665,7 @@ export default function App(){
           onPrintQuote={()=>{setPrintQuote(jobModal);setJobModal(null);}}
           onDelivery={()=>{setDeliveryJob(jobModal);setJobModal(null);}}
           onPartDelivery={(type)=>{setPartDelivery({job:jobModal,type:type||'part'});setJobModal(null);}}
+          onDeliveryFlow={()=>{setDeliveryFlow(jobModal);setJobModal(null);}}
           stageInput={stageInput} setStageInput={setStageInput}
           allJobs={jobs}
         />
@@ -805,7 +810,7 @@ function JobTable({jobs,onOpen}){
 }
 
 // ── JOB DETAIL ────────────────────────────────────────────────────────────────
-function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDeliveryFlow,stageInput,setStageInput,allJobs}){
+function JobDetail({job,onEdit,onAdvance,onDelete,onToggleStage,onAddStage,onRemoveStage,onPrint,onPrintQuote,onDelivery,onEmailDelivery,onPartDelivery,onDeliveryFlow,stageInput,setStageInput,allJobs}){
   const allS=job.stages||[];
   const done=allS.filter(s=>job.stages_complete?.[s]).length;
   const next=STATUS_FLOW[STATUS_FLOW.indexOf(job.status)+1];
