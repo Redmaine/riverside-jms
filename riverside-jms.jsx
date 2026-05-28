@@ -995,7 +995,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
         {job.status !== "Invoiced" && idx < flow.length - 1 && !["In Production", "Part Despatched"].includes(job.status) && (
           <Btn onClick={advance} small color={C.success}>→ {flow[idx + 1]}</Btn>
         )}
-        {!["Quote", "Invoiced"].includes(job.status) && (
+        {job.status !== "Quote" && (
           <Btn onClick={() => setShowDN(!showDN)} small outline>📋 Delivery Note</Btn>
         )}
         <Btn onClick={() => setView("jobsheet")} small outline>🖨 Job Sheet</Btn>
