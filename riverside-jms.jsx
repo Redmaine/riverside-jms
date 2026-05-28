@@ -62,7 +62,7 @@ function Modal({ children, onClose, wide }) {
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-      zIndex: 1000, overflowY: "auto", padding: "32px 16px"
+      zIndex: 3000, overflowY: "auto", padding: "32px 16px"
     }}>
       <div onClick={e => e.stopPropagation()} style={{
         background: C.white, borderRadius: 10, margin: "0 auto",
@@ -832,7 +832,11 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
   const isOverdue = job.due_date && job.status !== "Invoiced" && new Date(job.due_date) < new Date();
 
-  if (view === "jobsheet") return <JobSheetDoc job={job} onBack={() => setView("detail")} />;
+  if (view === "jobsheet") return (
+    <div style={{ position: "fixed", inset: 0, background: C.white, zIndex: 2000, overflowY: "auto", padding: "20px 40px" }}>
+      <JobSheetDoc job={job} onBack={() => setView("detail")} />
+    </div>
+  );
   if (view === "quote") return <QuoteDoc job={job} onBack={() => setView("detail")} />;
 
   if (editing) return (
