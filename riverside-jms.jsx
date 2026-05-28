@@ -128,9 +128,18 @@ function JobSheetDoc({ job, onBack }) {
     <div>
       <div className="no-print" style={{ padding: 16, background: C.silverLighter, display: "flex", gap: 12, alignItems: "center", marginBottom: 16, borderRadius: 6 }}>
         <Btn onClick={onBack} outline small>← Back</Btn>
-        <Btn onClick={() => window.print()} small>🖨 Print Job Sheet</Btn>
+        <Btn onClick={() => {
+          const el = document.getElementById("job-sheet-content");
+          const w = window.open("", "_blank", "width=900,height=700");
+          w.document.write(`<!DOCTYPE html><html><head><title>Job Sheet</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#1a2744}table{border-collapse:collapse}@page{margin:15mm}</style></head><body>${el ? el.innerHTML : ""}</body></html>`);
+          w.document.close();
+          w.focus();
+          w.print();
+          w.onafterprint = () => w.close();
+        }} small>🖨 Print Job Sheet</Btn>
         <span style={{ fontSize: 12, color: C.textLight }}>Back button will not appear on printed copy</span>
       </div>
+      <div id="job-sheet-content">
       {/* Print header */}
       <div style={{ borderBottom: "3px solid #1a2744", paddingBottom: 10, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
@@ -205,6 +214,7 @@ function JobSheetDoc({ job, onBack }) {
       <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 20, display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textLight }}>
         <span>{COMPANY.name} · {COMPANY.address}</span>
         <span>Job Sheet {job.job_ref} · {version}</span>
+      </div>
       </div>
     </div>
   );
