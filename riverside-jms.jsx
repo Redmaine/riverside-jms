@@ -498,14 +498,24 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
     ).join("");
     const copy = (n, t) => `
       <div style="page-break-after:${n < t ? "always" : "auto"};padding-bottom:20px">
-        <div style="border-bottom:3px solid #1a2744;padding-bottom:12px;margin-bottom:16px">
-          <strong style="font-size:18px;color:#1a2744">${COMPANY.name}</strong><br>
-          <span style="font-size:11px;color:#666">${COMPANY.address}</span><br>
-          <span style="font-size:11px;color:#666">Tel: ${COMPANY.phone} | ${COMPANY.email}</span>
+        <div style="border-bottom:3px solid #1a2744;padding-bottom:12px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <strong style="font-size:18px;color:#1a2744">${COMPANY.name}</strong><br>
+            <span style="font-size:11px;color:#666">${COMPANY.address}</span><br>
+            <span style="font-size:11px;color:#666">Tel: ${COMPANY.phone} | ${COMPANY.email}</span>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:20px;font-weight:900;color:#1a2744">DELIVERY NOTE</div>
+            <div style="font-size:11px;color:#666">Copy ${n} of ${t}</div>
+          </div>
         </div>
-        <div style="display:flex;justify-content:space-between;margin-bottom:16px">
-          <div><strong style="font-size:18px">DELIVERY NOTE</strong><br><span style="font-size:11px;color:#666">Copy ${n} of ${t}</span></div>
-          <div style="text-align:right;font-size:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div style="border:1px solid #d0d8e8;border-radius:4px;padding:10px 14px">
+            <div style="font-size:10px;font-weight:700;color:#666;letter-spacing:1px;margin-bottom:4px">CUSTOMER</div>
+            <div style="font-size:16px;font-weight:800;color:#1a2744">${job.customer_name}</div>
+            ${job.contact_name ? `<div style="font-size:13px;color:#666">${job.contact_name}</div>` : ""}
+          </div>
+          <div style="font-size:12px;text-align:right">
             <div><strong>Our Ref:</strong> ${job.job_ref}</div>
             ${job.po_number ? `<div><strong>Customer PO:</strong> ${job.po_number}</div>` : ""}
             <div><strong>Date:</strong> ${new Date().toLocaleDateString("en-GB")}</div>
@@ -527,7 +537,7 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
         </div>
       </div>`;
     const w = window.open("", "_blank");
-    w.document.write(`<!DOCTYPE html><html><head><title>Delivery Note - ${job.job_ref}</title><style>body{font-family:Arial,sans-serif;margin:20px}</style></head><body>${copy(1,2)}<div style="border-top:2px dashed #aaa;margin:20px 0;text-align:center;font-size:11px;color:#aaa">✂ CUT HERE</div>${copy(2,2)}</body></html>`);
+    w.document.write(`<!DOCTYPE html><html><head><title>Delivery Note - ${job.job_ref}</title><style>body{font-family:Arial,sans-serif;margin:20px}@page{size:A4 portrait;margin:15mm}</style></head><body>${copy(1,2)}<div style="border-top:2px dashed #aaa;margin:20px 0;text-align:center;font-size:11px;color:#aaa">✂ CUT HERE</div>${copy(2,2)}</body></html>`);
     w.document.close();
     w.print();
   };
