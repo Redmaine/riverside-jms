@@ -835,24 +835,26 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
     onRefresh();
     // Send to QuickBooks via Zapier webhook (fire and forget - won't affect the app if it fails)
     try {
+      const webhookData = {
+        job_ref: job.job_ref || "",
+        customer_name: job.customer_name || "",
+        contact_name: job.contact_name || "",
+        po_number: job.po_number || "",
+        invoice_ref: invoiceRef || "",
+        due_date: job.due_date || "",
+        total: (job.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0),
+        lines: (job.lines || []).map(l => ({
+          desc: l.desc || "",
+          qty: parseFloat(l.qty) || 0,
+          price: parseFloat(l.price) || 0,
+          amount: (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
+        }))
+      };
       fetch("https://hooks.zapier.com/hooks/catch/27528894/4b13n1e/", {
         method: "POST",
+        mode: "no-cors",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_ref: job.job_ref,
-          customer_name: job.customer_name,
-          contact_name: job.contact_name || "",
-          po_number: job.po_number || "",
-          invoice_ref: invoiceRef,
-          due_date: job.due_date || "",
-          lines: (job.lines || []).map(l => ({
-            desc: l.desc,
-            qty: l.qty,
-            price: l.price,
-            amount: (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
-          })),
-          total: (job.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0)
-        })
+        body: JSON.stringify(webhookData)
       });
     } catch (e) { /* silently ignore if webhook fails */ }
   };
