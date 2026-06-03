@@ -140,7 +140,6 @@ function JobSheetDoc({ job, onBack }) {
         <span style={{ fontSize: 12, color: C.textLight }}>Back button will not appear on printed copy</span>
       </div>
       <div id="job-sheet-content">
-      {/* Print header */}
       <div style={{ borderBottom: "3px solid #1a2744", paddingBottom: 10, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.navy }}>{COMPANY.name}</div>
@@ -153,13 +152,11 @@ function JobSheetDoc({ job, onBack }) {
           {job.po_number && <div style={{ fontSize: 12, color: C.textLight }}>Customer PO: {job.po_number}</div>}
         </div>
       </div>
-      {/* Customer box */}
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 4, padding: "10px 14px", marginBottom: 16 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, letterSpacing: 1, marginBottom: 4 }}>CUSTOMER</div>
         <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{job.customer_name}</div>
         {job.contact_name && <div style={{ fontSize: 13, color: C.textLight }}>Contact: {job.contact_name}</div>}
       </div>
-      {/* Info table - R000025 style */}
       <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16, fontSize: 13 }}>
         <tbody>
           {rows.map((r, i) => (
@@ -170,7 +167,6 @@ function JobSheetDoc({ job, onBack }) {
           ))}
         </tbody>
       </table>
-      {/* Items to manufacture */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Items to Manufacture</div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, border: `1px solid ${C.border}` }}>
@@ -194,7 +190,6 @@ function JobSheetDoc({ job, onBack }) {
           </tbody>
         </table>
       </div>
-      {/* Production Stages */}
       {(job.stages || []).length > 0 ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Production Stages</div>
@@ -210,7 +205,6 @@ function JobSheetDoc({ job, onBack }) {
       ) : (
         <div style={{ fontSize: 13, color: C.textLight, marginBottom: 16 }}>No stages defined.</div>
       )}
-      {/* Footer */}
       <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 20, display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textLight }}>
         <span>{COMPANY.name} · {COMPANY.address}</span>
         <span>Job Sheet {job.job_ref} · {version}</span>
@@ -399,7 +393,6 @@ function FileAttachments({ jobId, jobRef, toast, onDrawingUpload }) {
   useEffect(() => { load(); }, [load]);
 
   const extractDrawingNumber = (filename) => {
-    // Remove file extension and common suffixes to get drawing number
     return filename.replace(/\.[^/.]+$/, "").replace(/[_-]?(rev|revision|v|ver)\s*\d+$/i, "").trim();
   };
 
@@ -412,7 +405,6 @@ function FileAttachments({ jobId, jobRef, toast, onDrawingUpload }) {
       if (upErr) throw upErr;
       await supabase.from("job_files").insert({ job_id: jobId, job_ref: jobRef, file_name: file.name, file_path: path, category, file_type: file.type });
       toast("File attached");
-      // If it's a drawing, offer to auto-populate drawing number
       if (category === "Drawing" && onDrawingUpload) {
         const suggested = extractDrawingNumber(file.name);
         onDrawingUpload(suggested);
@@ -600,7 +592,7 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
 
 function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
   const isNew = !job;
-  const blank = { customer_id: "", customer_name: "", contact_id: "", contact_name: "", description: "", po_number: "", status: "In Production", priority: "Normal", quote_ref: "", quote_status: "N/A", quote_date: todayStr(), lines: [{ desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }], stages: [], stages_complete: {}, drawing_number: "", drawing_attached: false, date_received: todayStr(), due_date: "", invoice_ref: "", notes: "" };
+  const blank = { customer_id: "", customer_name: "", contact_id: "", contact_name: "", description: "", po_number: "", status: "In Production", priority: "Normal", quote_ref: "", quote_status: "N/A", quote_date: todayStr(), lines: [{ desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }], stages: [], stages_complete: {}, drawing_number: "", drawing_attached: false, date_received: todayStr(), due_date: "", notes: "" };
   const [form, setForm] = useState(isNew ? blank : { ...blank, ...job });
   const [lines, setLines] = useState((isNew ? blank : job).lines || [{ desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }]);
   const [stages, setStages] = useState((isNew ? blank : job).stages || []);
@@ -625,7 +617,6 @@ function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
     setSaving(true);
     try {
       const payload = { ...form, lines, stages, stages_complete: form.stages_complete || {} };
-      // Convert empty date strings to null so Supabase doesn't reject them
       ["due_date", "date_received", "quote_date"].forEach(f => { if (!payload[f]) payload[f] = null; });
       if (isNew) {
         const { data: cnt } = await supabase.rpc("increment_job_counter");
@@ -804,8 +795,6 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
   const [view, setView] = useState("detail");
   const [editing, setEditing] = useState(false);
   const [showDN, setShowDN] = useState(false);
-  const [invoiceRef, setInvoiceRef] = useState("");
-  const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
 
   const reload = async () => {
     try {
@@ -817,33 +806,16 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
   const flow = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced"];
   const idx = flow.indexOf(job.status);
 
-  const advance = async () => {
-    if (idx < 0 || idx >= flow.length - 1) return;
-    const next = flow[idx + 1];
-    if (next === "Invoiced") { setShowInvoicePrompt(true); return; }
-    await supabase.from("jobs").update({ status: next }).eq("id", job.id);
-    toast("Job moved to " + next);
-    setJob(j => ({ ...j, status: next }));
-    onRefresh();
-  };
-
-  const confirmInvoice = async () => {
-    await supabase.from("jobs").update({ status: "Invoiced", invoice_ref: invoiceRef }).eq("id", job.id);
-    toast("Job invoiced");
-    setJob(j => ({ ...j, status: "Invoiced", invoice_ref: invoiceRef }));
-    setShowInvoicePrompt(false);
-    onRefresh();
-    // Send to QuickBooks via Zapier webhook (fire and forget - won't affect the app if it fails)
+  const fireWebhook = (jobData) => {
     try {
       const webhookData = {
-        job_ref: job.job_ref || "",
-        customer_name: job.customer_name || "",
-        contact_name: job.contact_name || "",
-        po_number: job.po_number || "",
-        invoice_ref: invoiceRef || "",
-        due_date: job.due_date || "",
-        total: (job.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0),
-        lines: (job.lines || []).map(l => ({
+        job_ref: jobData.job_ref || "",
+        customer_name: jobData.customer_name || "",
+        contact_name: jobData.contact_name || "",
+        po_number: jobData.po_number || "",
+        due_date: jobData.due_date || "",
+        total: (jobData.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0),
+        lines: (jobData.lines || []).map(l => ({
           desc: l.desc || "",
           qty: parseFloat(l.qty) || 0,
           price: parseFloat(l.price) || 0,
@@ -859,6 +831,23 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
     } catch (e) { /* silently ignore if webhook fails */ }
   };
 
+  const advance = async () => {
+    if (idx < 0 || idx >= flow.length - 1) return;
+    const next = flow[idx + 1];
+    if (next === "Invoiced") {
+      await supabase.from("jobs").update({ status: "Invoiced" }).eq("id", job.id);
+      toast("Job invoiced — sending to QuickBooks…");
+      const updatedJob = { ...job, status: "Invoiced" };
+      setJob(updatedJob);
+      onRefresh();
+      fireWebhook(updatedJob);
+      return;
+    }
+    await supabase.from("jobs").update({ status: next }).eq("id", job.id);
+    toast("Job moved to " + next);
+    setJob(j => ({ ...j, status: next }));
+    onRefresh();
+  };
 
   const resetDespatch = async () => {
     if (!window.confirm("Reset all despatch flags? This will mark all items as not despatched.")) return;
@@ -893,27 +882,12 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
   return (
     <Modal onClose={onClose} wide>
-      {showInvoicePrompt && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: C.white, borderRadius: 10, padding: 28, maxWidth: 380 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>Enter QB Invoice Reference</div>
-            <input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="QB Invoice #"
-              style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }} />
-            <div style={{ display: "flex", gap: 10 }}>
-              <Btn onClick={confirmInvoice}>Confirm Invoiced</Btn>
-              <Btn outline onClick={() => setShowInvoicePrompt(false)}>Cancel</Btn>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{job.job_ref}</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: C.accent }}>{job.customer_name}</div>
           {job.contact_name && <div style={{ fontSize: 13, color: C.textLight }}>{job.contact_name}</div>}
           {job.po_number && <div style={{ fontSize: 13 }}><strong>PO:</strong> {job.po_number}</div>}
-          {job.invoice_ref && <div style={{ fontSize: 13 }}><strong>Invoice Ref:</strong> {job.invoice_ref}</div>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "flex-start" }}>
           <StatusBadge s={job.status} />
@@ -1040,16 +1014,25 @@ function MonthlyHours({ emp, bankHolidays }) {
   const [hourlyRate, setHourlyRate] = useState(emp.hourly_rate || "");
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [adjustmentHours, setAdjustmentHours] = useState("");
+  const [adjustmentNote, setAdjustmentNote] = useState("");
 
   const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
   const storageKey = `rsm_hours_${emp.id}_${monthKey}`;
+  const adjustmentKey = `rsm_adj_${emp.id}_${monthKey}`;
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(storageKey);
       setEntries(saved ? JSON.parse(saved) : {});
     } catch { setEntries({}); }
-  }, [storageKey]);
+    try {
+      const savedAdj = localStorage.getItem(adjustmentKey);
+      const adj = savedAdj ? JSON.parse(savedAdj) : { hours: "", note: "" };
+      setAdjustmentHours(adj.hours || "");
+      setAdjustmentNote(adj.note || "");
+    } catch { setAdjustmentHours(""); setAdjustmentNote(""); }
+  }, [storageKey, adjustmentKey]);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear(y => y - 1); }
@@ -1060,15 +1043,12 @@ function MonthlyHours({ emp, bankHolidays }) {
     else setMonth(m => m + 1);
   };
 
-  // Build list of days for this month (Mon-Sat, no Sundays)
   const getDays = () => {
     const days = [];
     const d = new Date(year, month, 1);
     while (d.getMonth() === month) {
       const dow = d.getDay();
-      if (dow !== 0) { // exclude Sundays
-        days.push(new Date(d));
-      }
+      if (dow !== 0) { days.push(new Date(d)); }
       d.setDate(d.getDate() + 1);
     }
     return days;
@@ -1077,7 +1057,6 @@ function MonthlyHours({ emp, bankHolidays }) {
   const days = getDays();
   const bankHolDates = new Set(bankHolidays.map(h => h.date));
 
-  // Check if a date falls within employee's recorded leave
   const getLeaveType = (dateStr) => {
     for (const l of (emp.leave || [])) {
       if (dateStr >= l.from && dateStr <= l.to) return l.type;
@@ -1089,7 +1068,7 @@ function MonthlyHours({ emp, bankHolidays }) {
     if (!start || !finish) return 0;
     const [sh, sm] = start.split(":").map(Number);
     const [fh, fm] = finish.split(":").map(Number);
-    const totalMins = (fh * 60 + fm) - (sh * 60 + sm) - 30; // deduct 30 min lunch
+    const totalMins = (fh * 60 + fm) - (sh * 60 + sm) - 30;
     return Math.max(0, totalMins / 60);
   };
 
@@ -1101,6 +1080,7 @@ function MonthlyHours({ emp, bankHolidays }) {
   const saveMonth = () => {
     setSaving(true);
     try { localStorage.setItem(storageKey, JSON.stringify(entries)); } catch {}
+    try { localStorage.setItem(adjustmentKey, JSON.stringify({ hours: adjustmentHours, note: adjustmentNote })); } catch {}
     setTimeout(() => setSaving(false), 800);
   };
 
@@ -1112,8 +1092,9 @@ function MonthlyHours({ emp, bankHolidays }) {
   }, 0);
 
   const rate = parseFloat(hourlyRate) || 0;
-  const totalPay = totalHours * rate;
-
+  const adjustment = parseFloat(adjustmentHours) || 0;
+  const adjustedTotal = totalHours + adjustment;
+  const totalPay = adjustedTotal * rate;
   const monthName = new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 
   const emailAccountant = () => {
@@ -1129,8 +1110,7 @@ function MonthlyHours({ emp, bankHolidays }) {
       const hrs = calcHours(e.start, e.finish);
       return `${dayName}: ${e.start}–${e.finish} = ${hrs.toFixed(2)} hrs`;
     }).join("\n");
-
-    const body = `Monthly Hours — ${emp.name} — ${monthName}\n\nHourly Rate: £${rate.toFixed(2)}\n\n${lines}\n\nTOTAL HOURS: ${totalHours.toFixed(2)}\nTOTAL PAY: £${totalPay.toFixed(2)}`;
+    const body = `Monthly Hours — ${emp.name} — ${monthName}\n\nHourly Rate: £${rate.toFixed(2)}\n\n${lines}\n\nHOURS TOTAL: ${totalHours.toFixed(2)}${adjustment !== 0 ? `\nADJUSTMENT: ${adjustment > 0 ? "+" : ""}${adjustment.toFixed(2)} hrs${adjustmentNote ? ` (${adjustmentNote})` : ""}\nADJUSTED TOTAL: ${adjustedTotal.toFixed(2)} hrs` : ""}\nTOTAL PAY: £${totalPay.toFixed(2)}`;
     const mailto = `mailto:karen@mmsaccountants.co.uk?subject=Monthly Hours - ${emp.name} - ${monthName}&body=${encodeURIComponent(body)}`;
     window.open(mailto);
   };
@@ -1166,6 +1146,42 @@ function MonthlyHours({ emp, bankHolidays }) {
         </div>
       </div>
 
+      {/* Adjustment panel */}
+      <div style={{ background: adjustment > 0 ? "#e8f5e9" : adjustment < 0 ? "#fff0f0" : C.silverLighter, border: `1px solid ${adjustment > 0 ? C.success : adjustment < 0 ? C.danger : C.border}`, borderRadius: 6, padding: "10px 14px", marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 8, letterSpacing: 0.5 }}>HOURS ADJUSTMENT (previous month correction)</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => setAdjustmentHours(v => String((parseFloat(v) || 0) - 0.5))}
+              style={{ background: C.danger, color: C.white, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 16, fontWeight: 700, lineHeight: 1 }}>−</button>
+            <input
+              value={adjustmentHours}
+              onChange={e => setAdjustmentHours(e.target.value)}
+              type="number"
+              step="0.5"
+              placeholder="0.00"
+              style={{ ...inp, width: 70, textAlign: "center", fontWeight: 700, color: adjustment > 0 ? C.success : adjustment < 0 ? C.danger : C.text }}
+            />
+            <button onClick={() => setAdjustmentHours(v => String((parseFloat(v) || 0) + 0.5))}
+              style={{ background: C.success, color: C.white, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 16, fontWeight: 700, lineHeight: 1 }}>+</button>
+            <span style={{ fontSize: 12, color: C.textLight }}>hrs</span>
+          </div>
+          <input
+            value={adjustmentNote}
+            onChange={e => setAdjustmentNote(e.target.value)}
+            placeholder="Reason (e.g. extra day worked in Jan)…"
+            style={{ ...inp, flex: 1, minWidth: 180 }}
+          />
+          {adjustment !== 0 && (
+            <button onClick={() => { setAdjustmentHours(""); setAdjustmentNote(""); }}
+              style={{ background: "none", border: "none", color: C.textLight, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+          )}
+        </div>
+        {adjustment !== 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, color: adjustment > 0 ? C.success : C.danger, fontWeight: 600 }}>
+            {adjustment > 0 ? `+${adjustment.toFixed(2)}` : adjustment.toFixed(2)} hrs adjustment · Adjusted total: {adjustedTotal.toFixed(2)} hrs · Pay: £{totalPay.toFixed(2)}
+          </div>
+        )}
+      </div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
         <thead>
           <tr style={{ background: C.navy, color: C.white }}>
@@ -1186,10 +1202,8 @@ function MonthlyHours({ emp, bankHolidays }) {
             const hrs = calcHours(e.start, e.finish);
             const pay = hrs * rate;
             const dayLabel = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-
             let rowBg = i % 2 === 0 ? C.white : C.silverLighter;
             let statusCell = null;
-
             if (isBH) {
               rowBg = "#fff8e1";
               statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: "#b8860b", fontStyle: "italic" }}>Bank Holiday</td>;
@@ -1197,7 +1211,6 @@ function MonthlyHours({ emp, bankHolidays }) {
               rowBg = leave === "Holiday" ? "#e8f5e9" : "#fff0f0";
               statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: leave === "Holiday" ? C.success : C.danger, fontStyle: "italic" }}>{leave}</td>;
             }
-
             return (
               <tr key={ds} style={{ background: rowBg }}>
                 <td style={{ padding: "5px 8px", fontWeight: isSat ? 700 : 400, color: isSat ? C.accent : C.text }}>
@@ -1206,12 +1219,10 @@ function MonthlyHours({ emp, bankHolidays }) {
                 {statusCell || (
                   <>
                     <td style={{ padding: "4px 6px" }}>
-                      <input type="time" value={e.start || ""} onChange={ev => updateEntry(ds, "start", ev.target.value)}
-                        style={{ ...inp, width: "100%" }} />
+                      <input type="time" value={e.start || ""} onChange={ev => updateEntry(ds, "start", ev.target.value)} style={{ ...inp, width: "100%" }} />
                     </td>
                     <td style={{ padding: "4px 6px" }}>
-                      <input type="time" value={e.finish || ""} onChange={ev => updateEntry(ds, "finish", ev.target.value)}
-                        style={{ ...inp, width: "100%" }} />
+                      <input type="time" value={e.finish || ""} onChange={ev => updateEntry(ds, "finish", ev.target.value)} style={{ ...inp, width: "100%" }} />
                     </td>
                     <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: hrs > 0 ? C.navy : C.textLight }}>
                       {hrs > 0 ? hrs.toFixed(2) : "—"}
@@ -1229,14 +1240,35 @@ function MonthlyHours({ emp, bankHolidays }) {
           })}
         </tbody>
         <tfoot>
+          {adjustment !== 0 && (
+            <tr style={{ background: adjustment > 0 ? "#e8f5e9" : "#fff0f0", fontWeight: 600 }}>
+              <td colSpan={3} style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: C.textLight }}>
+                Recorded hours subtotal
+              </td>
+              <td style={{ padding: "6px 10px", textAlign: "center", fontSize: 12 }}>{totalHours.toFixed(2)} hrs</td>
+              <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12 }}>£{(totalHours * rate).toFixed(2)}</td>
+            </tr>
+          )}
+          {adjustment !== 0 && (
+            <tr style={{ background: adjustment > 0 ? "#e8f5e9" : "#fff0f0", fontWeight: 600 }}>
+              <td colSpan={3} style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: adjustment > 0 ? C.success : C.danger }}>
+                Adjustment{adjustmentNote ? `: ${adjustmentNote}` : ""}
+              </td>
+              <td style={{ padding: "6px 10px", textAlign: "center", fontSize: 12, color: adjustment > 0 ? C.success : C.danger }}>
+                {adjustment > 0 ? "+" : ""}{adjustment.toFixed(2)} hrs
+              </td>
+              <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: adjustment > 0 ? C.success : C.danger }}>
+                {adjustment > 0 ? "+" : ""}£{(adjustment * rate).toFixed(2)}
+              </td>
+            </tr>
+          )}
           <tr style={{ background: C.navy, color: C.white, fontWeight: 700 }}>
             <td colSpan={3} style={{ padding: "8px 10px", textAlign: "right" }}>TOTALS</td>
-            <td style={{ padding: "8px 10px", textAlign: "center" }}>{totalHours.toFixed(2)} hrs</td>
+            <td style={{ padding: "8px 10px", textAlign: "center" }}>{adjustedTotal.toFixed(2)} hrs</td>
             <td style={{ padding: "8px 10px", textAlign: "right" }}>£{totalPay.toFixed(2)}</td>
           </tr>
         </tfoot>
       </table>
-
       <div style={{ display: "flex", gap: 10 }}>
         <Btn small onClick={saveMonth} disabled={saving}>{saving ? "Saved ✓" : "💾 Save Month"}</Btn>
         <Btn small outline onClick={emailAccountant}>✉ Email to Accountant</Btn>
@@ -1326,7 +1358,6 @@ function HRModule({ toast }) {
 
   const bankHolsTaken = (emp) => {
     const yrStart = holidayYearStart();
-    // Count bank holidays that fall within holiday leave entries
     return (emp.leave || []).filter(l => l.type === "Holiday" && new Date(l.from) >= yrStart)
       .reduce((s, l) => s + bankHolsInRange(l.from, l.to), 0);
   };
@@ -1367,7 +1398,6 @@ function HRModule({ toast }) {
         Holiday year: 1 Nov – 31 Oct | Personal allowance: {HOLIDAY_ALLOWANCE} days | Bank holidays: separate (see below) | Sickness: unpaid
       </div>
 
-      {/* Bank Holidays Panel */}
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14, marginBottom: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>
@@ -1590,7 +1620,7 @@ function CustomerDetail({ customer, jobs, onClose, onEdit, onJobClick }) {
 
 function Dashboard({ jobs, onJobClick }) {
   const [filterStatus, setFilterStatus] = useState(null);
-  const [filterAlert, setFilterAlert] = useState(null); // "overdue" | "invoice" | "tomorrow"
+  const [filterAlert, setFilterAlert] = useState(null);
 
   const pipeline = jobs.filter(j => j.status === "In Production").reduce((a, j) => a + lineTotal(j.lines), 0);
   const overdueJobs = jobs.filter(j => j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date());
@@ -1695,17 +1725,14 @@ function JobsList({ jobs, onJobClick }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const statuses = ["All", "Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced", "Needs Review"];
-  const statusOrder = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced", "Needs Review"];
   const filtered = jobs.filter(j => {
     const q = search.toLowerCase();
     const matchSearch = !q || (j.job_ref || "").toLowerCase().includes(q) || (j.customer_name || "").toLowerCase().includes(q) || (j.po_number || "").toLowerCase().includes(q) || (j.lines || []).some(l => (l.desc || "").toLowerCase().includes(q));
     return matchSearch && (filterStatus === "All" || j.status === filterStatus);
   }).sort((a, b) => {
-    // Sort by due date - most urgent first (no due date goes to bottom)
     const aDate = a.due_date ? new Date(a.due_date) : new Date("9999-12-31");
     const bDate = b.due_date ? new Date(b.due_date) : new Date("9999-12-31");
     if (aDate - bDate !== 0) return aDate - bDate;
-    // If same due date, sort by job ref
     return (a.job_ref || "").localeCompare(b.job_ref || "");
   });
   return (
@@ -1882,8 +1909,8 @@ export default function App() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const exportCSV = () => {
-    const headers = ["Job Ref", "Customer", "PO Number", "Status", "Priority", "Date Received", "Due Date", "Total Value", "Drawing No", "Invoice Ref", "Notes"];
-    const rows = jobs.map(j => [j.job_ref, j.customer_name, j.po_number || "", j.status, j.priority, j.date_received || "", j.due_date || "", lineTotal(j.lines).toFixed(2), j.drawing_number || "", j.invoice_ref || "", (j.notes || "").replace(/,/g, ";")]);
+    const headers = ["Job Ref", "Customer", "PO Number", "Status", "Priority", "Date Received", "Due Date", "Total Value", "Drawing No", "Notes"];
+    const rows = jobs.map(j => [j.job_ref, j.customer_name, j.po_number || "", j.status, j.priority, j.date_received || "", j.due_date || "", lineTotal(j.lines).toFixed(2), j.drawing_number || "", (j.notes || "").replace(/,/g, ";")]);
     const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
     const a = document.createElement("a");
     a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
