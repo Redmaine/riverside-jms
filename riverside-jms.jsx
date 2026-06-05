@@ -398,12 +398,15 @@ function FileAttachments({ jobId, jobRef, toast, onDrawingUpload }) {
 
   const handleFile = async (file) => {
     if (!file) return;
+    if (!jobId) { toast("Cannot attach file — job ID missing. Please close and reopen this job.", "error"); return; }
     setUploading(true);
     try {
-      const path = `${jobRef}/${Date.now()}_${file.name}`;
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${jobRef}/${Date.now()}_${safeName}`;
       const { error: upErr } = await supabase.storage.from("job-files").upload(path, file);
       if (upErr) throw upErr;
-      await supabase.from("job_files").insert({ job_id: jobId, job_ref: jobRef, file_name: file.name, file_path: path, category, file_type: file.type });
+      const { error: dbErr } = await supabase.from("job_files").insert({ job_id: jobId, job_ref: jobRef, file_name: file.name, file_path: path, category, file_type: file.type });
+      if (dbErr) throw dbErr;
       toast("File attached");
       if (category === "Drawing" && onDrawingUpload) {
         const suggested = extractDrawingNumber(file.name);
