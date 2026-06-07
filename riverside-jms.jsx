@@ -1021,21 +1021,25 @@ function MonthlyHours({ emp, bankHolidays }) {
   const [adjustmentNote, setAdjustmentNote] = useState("");
 
   const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
-  const storageKey = `rsm_hours_${emp.id}_${monthKey}`;
-  const adjustmentKey = `rsm_adj_${emp.id}_${monthKey}`;
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      setEntries(saved ? JSON.parse(saved) : {});
-    } catch { setEntries({}); }
-    try {
-      const savedAdj = localStorage.getItem(adjustmentKey);
-      const adj = savedAdj ? JSON.parse(savedAdj) : { hours: "", note: "" };
-      setAdjustmentHours(adj.hours || "");
-      setAdjustmentNote(adj.note || "");
-    } catch { setAdjustmentHours(""); setAdjustmentNote(""); }
-  }, [storageKey, adjustmentKey]);
+    const loadMonth = async () => {
+      try {
+        const { data } = await supabase.from("hr_monthly_hours")
+          .select("*").eq("employee_id", emp.id).eq("month_key", monthKey).single();
+        if (data) {
+          setEntries(data.entries || {});
+          setAdjustmentHours(data.adjustment_hours ? String(data.adjustment_hours) : "");
+          setAdjustmentNote(data.adjustment_note || "");
+        } else {
+          setEntries({});
+          setAdjustmentHours("");
+          setAdjustmentNote("");
+        }
+      } catch { setEntries({}); setAdjustmentHours(""); setAdjustmentNote(""); }
+    };
+    loadMonth();
+  }, [emp.id, monthKey]);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear(y => y - 1); }
@@ -1080,10 +1084,17 @@ function MonthlyHours({ emp, bankHolidays }) {
     setEntries(updated);
   };
 
-  const saveMonth = () => {
+  const saveMonth = async () => {
     setSaving(true);
-    try { localStorage.setItem(storageKey, JSON.stringify(entries)); } catch {}
-    try { localStorage.setItem(adjustmentKey, JSON.stringify({ hours: adjustmentHours, note: adjustmentNote })); } catch {}
+    try {
+      await supabase.from("hr_monthly_hours").upsert({
+        employee_id: emp.id,
+        month_key: monthKey,
+        entries,
+        adjustment_hours: parseFloat(adjustmentHours) || 0,
+        adjustment_note: adjustmentNote
+      }, { onConflict: "employee_id,month_key" });
+    } catch (e) { console.error("Save failed", e); }
     setTimeout(() => setSaving(false), 800);
   };
 
@@ -1281,9 +1292,8 @@ function MonthlyHours({ emp, bankHolidays }) {
 }
 
 function HRModule({ toast }) {
-  const [employees, setEmployees] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("rsm_hr_employees") || "[]"); } catch { return []; }
-  });
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
   const [leaveForm, setLeaveForm] = useState(null);
@@ -1291,10 +1301,14 @@ function HRModule({ toast }) {
   const [showBankHols, setShowBankHols] = useState(false);
   const HOLIDAY_ALLOWANCE = 20;
 
-  const save = (emps) => {
-    setEmployees(emps);
-    try { localStorage.setItem("rsm_hr_employees", JSON.stringify(emps)); } catch {}
-  };
+  const loadEmployees = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("hr_employees").select("*").order("name");
+    if (!error) setEmployees(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadEmployees(); }, [loadEmployees]);
 
   const holidayYearStart = () => {
     const now = new Date();
@@ -1368,28 +1382,47 @@ function HRModule({ toast }) {
   const sickDays = (emp) => (emp.leave || []).filter(l => l.type === "Sickness")
     .reduce((s, l) => s + workingDays(l.from, l.to, false), 0);
 
-  const addEmployee = () => {
+  const addEmployee = async () => {
     if (!form.name.trim()) return;
-    save([...employees, { id: Date.now().toString(), ...form, leave: [] }]);
+    const payload = { name: form.name.trim(), title: form.title, start_date: form.startDate || null, hourly_rate: parseFloat(form.hourly_rate) || null, leave: [] };
+    const { error } = await supabase.from("hr_employees").insert(payload);
+    if (error) { toast("Failed to add employee", "error"); return; }
     setForm({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
     setShowForm(false);
     toast("Employee added");
+    loadEmployees();
   };
 
-  const addLeave = () => {
+  const addLeave = async () => {
     if (!leaveForm || !leaveForm.from || !leaveForm.to) return;
-    const emps = employees.map(e => e.id === leaveForm.empId
-      ? { ...e, leave: [...(e.leave || []), { id: Date.now().toString(), type: leaveForm.type, from: leaveForm.from, to: leaveForm.to }] }
-      : e);
-    save(emps);
+    const emp = employees.find(e => e.id === leaveForm.empId);
+    if (!emp) return;
+    const updatedLeave = [...(emp.leave || []), { id: Date.now().toString(), type: leaveForm.type, from: leaveForm.from, to: leaveForm.to }];
+    const { error } = await supabase.from("hr_employees").update({ leave: updatedLeave }).eq("id", leaveForm.empId);
+    if (error) { toast("Failed to save leave", "error"); return; }
     setLeaveForm(null);
     toast("Leave recorded");
+    loadEmployees();
   };
 
-  const delLeave = (empId, leaveId) => save(employees.map(e => e.id === empId ? { ...e, leave: (e.leave || []).filter(l => l.id !== leaveId) } : e));
-  const delEmployee = (id) => { if (window.confirm("Remove employee?")) save(employees.filter(e => e.id !== id)); };
+  const delLeave = async (empId, leaveId) => {
+    const emp = employees.find(e => e.id === empId);
+    if (!emp) return;
+    const updatedLeave = (emp.leave || []).filter(l => l.id !== leaveId);
+    const { error } = await supabase.from("hr_employees").update({ leave: updatedLeave }).eq("id", empId);
+    if (!error) loadEmployees();
+  };
+
+  const delEmployee = async (id) => {
+    if (!window.confirm("Remove employee? This will also delete all their hours records.")) return;
+    await supabase.from("hr_employees").delete().eq("id", id);
+    toast("Employee removed");
+    loadEmployees();
+  };
 
   const inp = { padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.textLight }}>Loading HR data…</div>;
 
   return (
     <div>
@@ -1506,7 +1539,7 @@ function HRModule({ toast }) {
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{emp.name}</div>
                 <div style={{ fontSize: 13, color: C.textLight }}>
-                  {emp.title}{emp.startDate ? ` · Started ${new Date(emp.startDate).toLocaleDateString("en-GB")}` : ""}
+                  {emp.title}{emp.start_date ? ` · Started ${new Date(emp.start_date).toLocaleDateString("en-GB")}` : ""}
                   {emp.hourly_rate ? ` · £${parseFloat(emp.hourly_rate).toFixed(2)}/hr` : ""}
                 </div>
               </div>
