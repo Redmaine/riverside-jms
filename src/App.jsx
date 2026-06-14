@@ -14,18 +14,59 @@ import { CustomersList } from "./components/Customers/CustomerList";
 import { CustomerForm } from "./components/Customers/CustomerForm";
 import { CustomerDetail } from "./components/Customers/CustomerDetail";
 import { HRModule } from "./components/HR/HRModule";
+import { ModulesHost } from "./components/Modules/ModulesHost";
+
+// Nav model. type "view" = built-in Riverside screen; "module" = a YCA module.
+const NAV = [
+  { group: "MAIN", items: [
+    { id: "dashboard", label: "📊 Dashboard", type: "view" },
+    { id: "jobs", label: "💼 Jobs", type: "view" },
+    { id: "customers", label: "👥 Customers", type: "view" },
+    { id: "alerts", label: "⚠️ Alerts", type: "view" },
+    { id: "prices", label: "🔍 Price Search", type: "view" },
+    { id: "hr", label: "👤 HR & Staff", type: "view" },
+  ]},
+  { group: "FINANCE", items: [
+    { id: "invoices", label: "🧾 Invoices", type: "module" },
+    { id: "chasing", label: "📨 Invoice Chasing", type: "module" },
+    { id: "bills", label: "💳 Bills & Expenses", type: "module" },
+    { id: "job-costing", label: "📐 Job Costing", type: "module" },
+  ]},
+  { group: "CUSTOMER", items: [
+    { id: "portal", label: "🔑 Customer Portal", type: "module" },
+    { id: "booking", label: "📅 Online Booking", type: "module" },
+    { id: "reviews", label: "⭐ Review Manager", type: "module" },
+  ]},
+  { group: "COMPLIANCE & ASSETS", items: [
+    { id: "health-safety", label: "🦺 Health & Safety", type: "module" },
+    { id: "fleet", label: "🚐 Fleet", type: "module" },
+    { id: "assets", label: "🔧 Assets", type: "module" },
+    { id: "documents", label: "📁 Documents", type: "module" },
+  ]},
+  { group: "MORE", items: [
+    { id: "whatsapp", label: "💬 WhatsApp", type: "module" },
+    { id: "proposals", label: "✍️ Proposals & E-Sign", type: "module" },
+    { id: "loyalty", label: "🎁 Loyalty", type: "module" },
+  ]},
+];
+
+const ALL_ITEMS = NAV.flatMap(g => g.items);
 
 export default function App() {
-  const [tab, setTab] = useState("dashboard");
+  const [active, setActive] = useState("dashboard");
+  const [navOpen, setNavOpen] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showJobForm, setShowJobForm] = useState(false);
   const [editCustomer, setEditCustomer] = useState(null);
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const { toasts, add: toast } = useToast();
+
+  useEffect(() => { supabase.auth.getSession().then(({ data }) => setSession(data.session)); }, []);
 
   const loadData = useCallback(async () => {
     const [{ data: j }, { data: c }] = await Promise.all([
@@ -49,14 +90,8 @@ export default function App() {
     a.click();
   };
 
-  const TABS = [
-    { id: "dashboard", label: "📊 Dashboard" },
-    { id: "jobs", label: "💼 Jobs" },
-    { id: "customers", label: "👥 Customers" },
-    { id: "alerts", label: "⚠️ Alerts" },
-    { id: "prices", label: "🔍 Prices" },
-    { id: "hr", label: "👤 HR" },
-  ];
+  const go = (id) => { setActive(id); setNavOpen(false); };
+  const current = ALL_ITEMS.find(i => i.id === active) || ALL_ITEMS[0];
 
   if (loading) return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -68,39 +103,52 @@ export default function App() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "system-ui, sans-serif" }}>
+    <div className="rv-shell" style={{ fontFamily: "system-ui, sans-serif" }}>
       <Toasts toasts={toasts} />
-      <div style={{ background: C.navy, color: C.white, padding: "0 20px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0" }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 900, letterSpacing: 0.5 }}>{COMPANY.name}</div>
-            <div style={{ fontSize: 10, opacity: 0.6 }}>Job Management System</div>
+
+      {/* Sidebar */}
+      <div className={"rv-sidebar" + (navOpen ? " open" : "")}>
+        <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+          <div style={{ fontSize: 14, fontWeight: 900, color: C.white, lineHeight: 1.2 }}>Riverside</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>Job Management System</div>
+        </div>
+        {NAV.map(g => (
+          <div key={g.group}>
+            <div className="rv-navgroup">{g.group}</div>
+            {g.items.map(it => (
+              <button key={it.id} className={"rv-navitem" + (active === it.id ? " active" : "")} onClick={() => go(it.id)}>{it.label}</button>
+            ))}
+          </div>
+        ))}
+        <div className="rv-navgroup">ACCOUNT</div>
+        <button className="rv-navitem" onClick={() => supabase.auth.signOut()}>↩ Sign out</button>
+        <div style={{ height: 20 }} />
+      </div>
+      <div className={"rv-backdrop" + (navOpen ? " open" : "")} onClick={() => setNavOpen(false)} />
+
+      {/* Main */}
+      <div className="rv-main">
+        <div style={{ background: C.white, borderBottom: `1px solid ${C.border}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <button className="rv-hamburger" onClick={() => setNavOpen(v => !v)}>☰</button>
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{current.label.replace(/^[^ ]+ /, "")}</div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Btn small onClick={() => setShowJobForm(true)} color={C.accent}>+ New Job</Btn>
-            <Btn small onClick={() => { setEditCustomer(null); setShowCustomerForm(true); }} outline style={{ borderColor: "rgba(255,255,255,0.4)", color: C.white }}>+ Customer</Btn>
-            <Btn small onClick={exportCSV} outline style={{ borderColor: "rgba(255,255,255,0.4)", color: C.white }}>↓ Export</Btn>
+            <Btn small outline onClick={() => { setEditCustomer(null); setShowCustomerForm(true); }}>+ Customer</Btn>
+            <Btn small outline onClick={exportCSV}>↓ Export</Btn>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding: "8px 14px", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
-              background: tab === t.id ? "rgba(255,255,255,0.15)" : "transparent",
-              color: tab === t.id ? C.white : "rgba(255,255,255,0.6)",
-              borderBottom: tab === t.id ? `2px solid ${C.white}` : "2px solid transparent",
-            }}>{t.label}</button>
-          ))}
-        </div>
-      </div>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 16px" }}>
-        {tab === "dashboard" && <Dashboard jobs={jobs} onJobClick={setSelectedJob} />}
-        {tab === "jobs" && <JobsList jobs={jobs} onJobClick={setSelectedJob} />}
-        {tab === "customers" && <CustomersList customers={customers} jobs={jobs} onEdit={c => { setEditCustomer(c); setShowCustomerForm(true); }} onCustomerClick={setSelectedCustomer} />}
-        {tab === "alerts" && <Alerts jobs={jobs} onJobClick={setSelectedJob} />}
-        {tab === "prices" && <PriceSearch jobs={jobs} />}
-        {tab === "hr" && <HRModule toast={toast} />}
+        <div style={{ maxWidth: 1100, width: "100%", margin: "0 auto", padding: "20px 16px", boxSizing: "border-box" }}>
+          {current.type === "view" && active === "dashboard" && <Dashboard jobs={jobs} onJobClick={setSelectedJob} />}
+          {current.type === "view" && active === "jobs" && <JobsList jobs={jobs} onJobClick={setSelectedJob} />}
+          {current.type === "view" && active === "customers" && <CustomersList customers={customers} jobs={jobs} onEdit={c => { setEditCustomer(c); setShowCustomerForm(true); }} onCustomerClick={setSelectedCustomer} />}
+          {current.type === "view" && active === "alerts" && <Alerts jobs={jobs} onJobClick={setSelectedJob} />}
+          {current.type === "view" && active === "prices" && <PriceSearch jobs={jobs} />}
+          {current.type === "view" && active === "hr" && <HRModule toast={toast} />}
+          {current.type === "module" && <ModulesHost moduleKey={active} session={session} />}
+        </div>
       </div>
 
       {showJobForm && (

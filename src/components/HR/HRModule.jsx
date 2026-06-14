@@ -415,6 +415,17 @@ export function HRModule({ toast }) {
     loadEmployees();
   };
 
+  const togglePension = async (emp) => {
+    const optingOut = !emp.opted_out_pension;
+    const { error } = await supabase.from("hr_employees").update({
+      opted_out_pension: optingOut,
+      opted_out_pension_at: optingOut ? new Date().toISOString() : null,
+    }).eq("id", emp.id);
+    if (error) { toast("Could not update pension status", "error"); return; }
+    toast(optingOut ? `${emp.name} opted out of the workplace pension` : `${emp.name} re-enrolled in the pension`);
+    loadEmployees();
+  };
+
   const inp = { padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13 };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.textLight }}>Loading HR data…</div>;
@@ -540,6 +551,9 @@ export function HRModule({ toast }) {
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn small onClick={() => setLeaveForm({ empId: emp.id, type: "Holiday", from: todayStr(), to: todayStr() })}>+ Add Leave</Btn>
+                <Btn small outline color={emp.opted_out_pension ? C.warning : C.success} onClick={() => togglePension(emp)}>
+                  {emp.opted_out_pension ? "Pension: Opted out" : "Pension: Enrolled"}
+                </Btn>
                 <Btn small danger onClick={() => delEmployee(emp.id)}>Remove</Btn>
               </div>
             </div>
