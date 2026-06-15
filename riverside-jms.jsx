@@ -5,32 +5,6 @@ const printStyle = document.createElement("style");
 printStyle.innerHTML = `@media print { .no-print { display: none !important; } @page { margin: 15mm; } }`;
 document.head.appendChild(printStyle);
 
-// Responsive job-card styles (the app is otherwise inline-styled).
-const appStyle = document.createElement("style");
-appStyle.innerHTML = `
-  .rv-job-card { padding: 14px 16px; background: #fff; border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
-  .rv-job-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
-  .rv-job-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-width: 0; }
-  .rv-job-meta > * { min-width: 0; overflow-wrap: anywhere; }
-  .rv-job-right { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-  .rv-job-desc { overflow: hidden; }
-  .rv-job-desc:not(.expanded) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; max-height: 3em; }
-  .rv-showmore { background: none; border: none; cursor: pointer; font-size: 12px; font-weight: 600; padding: 4px 0; }
-  @media (max-width: 640px) {
-    .rv-job-card { padding: 16px; }
-    .rv-job-head { flex-direction: column; }
-    .rv-job-right { width: 100%; justify-content: flex-end; }
-  }
-`;
-document.head.appendChild(appStyle);
-
-// Render description text as plain text — strip common markdown symbols.
-const stripMarkdown = (s) => String(s || "")
-  .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-  .replace(/[*_`~#>]/g, "")
-  .replace(/\s+/g, " ")
-  .trim();
-
 const SUPABASE_URL = "https://hzxfskdcluuluzpzevnz.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eGZza2RjbHV1bHV6cHpldm56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5ODM0NTQsImV4cCI6MjA5MzU1OTQ1NH0.D2mXA0yDZQFYBrh09kjlzV4W49f792XBqsP5TCpOo3s";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -651,6 +625,17 @@ function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
         const { data: cnt } = await supabase.rpc("increment_job_counter");
         payload.job_ref = `R${String(cnt).padStart(6, "0")}`;
       }
+      // PO duplicate check
+      if (payload.po_number && payload.po_number.trim()) {
+        const { data: existing } = await supabase.from("jobs").select("job_ref").eq("po_number", payload.po_number.trim()).neq("id", job?.id || "00000000-0000-0000-0000-000000000000");
+        if (existing && existing.length > 0) {
+          const refs = existing.map(j => j.job_ref).join(", ");
+          if (!window.confirm(`⚠ PO number "${payload.po_number}" is already used on job ${refs}. Save anyway?`)) {
+            setSaving(false);
+            return;
+          }
+        }
+      }
       delete payload.id;
       const { error } = isNew
         ? await supabase.from("jobs").insert(payload)
@@ -878,6 +863,14 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
     onRefresh();
   };
 
+  const deleteJob = async () => {
+    if (!window.confirm(`Delete job ${job.job_ref}? This cannot be undone.`)) return;
+    await supabase.from("jobs").delete().eq("id", job.id);
+    toast(`Job ${job.job_ref} deleted`);
+    onClose();
+    onRefresh();
+  };
+
   const resetDespatch = async () => {
     if (!window.confirm("Reset all despatch flags? This will mark all items as not despatched.")) return;
     const resetLines = (job.lines || []).map(l => ({ ...l, despatched: false, despatchDate: null }));
@@ -955,7 +948,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
           <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>ORDER LINES</div>
           {(job.lines || []).map((l, i) => (
             <div key={i} style={{
-              display: "grid", gridTemplateColumns: "1fr 60px 80px 100px", gap: 8,
+              display: "grid", gridTemplateColumns: "1fr 60px 70px 80px 100px", gap: 8,
               padding: "7px 10px", marginBottom: 4,
               background: l.despatched ? "#e8f5e9" : C.silverLighter, borderRadius: 4, fontSize: 13
             }}>
@@ -963,6 +956,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
                 {l.despatched ? "✓ " : ""}{l.desc}
               </span>
               <span style={{ textAlign: "center" }}>× {l.qty}</span>
+              <span style={{ textAlign: "right", color: C.textLight, fontSize: 12 }}>{fmt(l.price)} ea</span>
               <span style={{ textAlign: "right" }}>{fmt((l.qty || 0) * (l.price || 0))}</span>
               <span style={{ fontSize: 11, color: C.textLight }}>
                 {l.despatched && l.despatchDate ? new Date(l.despatchDate).toLocaleDateString("en-GB") : (l.drawingNo || "")}
@@ -1022,6 +1016,9 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
         {job.status !== "Invoiced" && idx < flow.length - 1 && !["In Production", "Part Despatched"].includes(job.status) && (
           <Btn onClick={advance} small color={C.success}>→ {flow[idx + 1]}</Btn>
         )}
+        {job.status === "Quote" && (
+          <Btn onClick={advance} small color={C.success}>→ In Production</Btn>
+        )}
         {job.status !== "Quote" && (
           <Btn onClick={() => setShowDN(!showDN)} small outline>📋 Delivery Note</Btn>
         )}
@@ -1030,6 +1027,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
           <Btn onClick={resetDespatch} small danger outline>↺ Reset Despatch</Btn>
         )}
         {job.status === "Quote" && <Btn onClick={() => setView("quote")} small outline>📄 Print Quote</Btn>}
+        <Btn onClick={deleteJob} small danger outline>🗑 Delete</Btn>
       </div>
     </Modal>
   );
@@ -1783,46 +1781,6 @@ function Dashboard({ jobs, onJobClick }) {
   );
 }
 
-function JobListCard({ j, onJobClick }) {
-  const [expanded, setExpanded] = useState(false);
-  const isOverdue = j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date();
-  const lines = j.lines || [];
-  return (
-    <div className="rv-job-card" onClick={() => onJobClick(j)} style={{ border: `1px solid ${isOverdue ? C.warning : C.border}` }}>
-      <div className="rv-job-head">
-        <div className="rv-job-meta">
-          <strong style={{ color: C.accent }}>{j.job_ref}</strong>
-          <span style={{ fontWeight: 600 }}>{j.customer_name}</span>
-          {j.po_number && <span style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number}</span>}
-          {j.due_date && <span style={{ fontSize: 12, color: isOverdue ? C.danger : C.textLight }}>Due: {new Date(j.due_date).toLocaleDateString("en-GB")}</span>}
-        </div>
-        <div className="rv-job-right">
-          <StatusBadge s={j.status} />
-          <span style={{ fontWeight: 700 }}>{fmt(lineTotal(j.lines))}</span>
-        </div>
-      </div>
-      {lines.length > 0 && (
-        <>
-          <div className={"rv-job-desc" + (expanded ? " expanded" : "")}>
-            {lines.map((l, i) => (
-              <div key={i} style={{ fontSize: 12, color: C.textLight }}>
-                {l.despatched ? <span style={{ color: C.success }}>✓ </span> : "• "}
-                {stripMarkdown(l.desc)} × {l.qty}
-                {l.despatched && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
-              </div>
-            ))}
-          </div>
-          {lines.length > 2 && (
-            <button className="rv-showmore" style={{ color: C.accent }} onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}>
-              {expanded ? "Show less" : "Show more"}
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
 function JobsList({ jobs, onJobClick }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -1848,7 +1806,33 @@ function JobsList({ jobs, onJobClick }) {
         </select>
       </div>
       <div style={{ fontSize: 12, color: C.textLight, marginBottom: 8 }}>{filtered.length} job{filtered.length !== 1 ? "s" : ""}</div>
-      {filtered.map(j => <JobListCard key={j.id} j={j} onJobClick={onJobClick} />)}
+      {filtered.map(j => {
+        const isOverdue = j.due_date && j.status !== "Invoiced" && new Date(j.due_date) < new Date();
+        return (
+          <div key={j.id} onClick={() => onJobClick(j)}
+            style={{ padding: "12px 14px", background: C.white, border: `1px solid ${isOverdue ? C.warning : C.border}`, borderRadius: 6, marginBottom: 6, cursor: "pointer" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <strong style={{ color: C.accent }}>{j.job_ref}</strong>
+                <span style={{ fontWeight: 600 }}>{j.customer_name}</span>
+                {j.po_number && <span style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number}</span>}
+                {j.due_date && <span style={{ fontSize: 12, color: isOverdue ? C.danger : C.textLight }}>Due: {new Date(j.due_date).toLocaleDateString("en-GB")}</span>}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <StatusBadge s={j.status} />
+                <span style={{ fontWeight: 700 }}>{fmt(lineTotal(j.lines))}</span>
+              </div>
+            </div>
+            {(j.lines || []).map((l, i) => (
+              <div key={i} style={{ fontSize: 12, color: C.textLight }}>
+                {l.despatched ? <span style={{ color: C.success }}>✓ </span> : "• "}
+                {l.desc} × {l.qty}
+                {l.despatched && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1919,6 +1903,74 @@ function Alerts({ jobs, onJobClick }) {
       <Section title="OVERDUE" items={overdue} color={C.danger} icon="🔴" />
       <Section title="READY TO INVOICE" items={awaitingInvoice} color={C.warning} icon="⚠️" />
       <Section title="DUE TOMORROW" items={dueTomorrow} color={C.accent} icon="📅" />
+    </div>
+  );
+}
+
+function TaraFactorySheet({ jobs }) {
+  const taraJobs = jobs.filter(j => j.customer_name === "Tara Signs Ltd" && !["Invoiced", "Quote"].includes(j.status))
+    .sort((a, b) => {
+      const aDate = a.due_date ? new Date(a.due_date) : new Date("9999-12-31");
+      const bDate = b.due_date ? new Date(b.due_date) : new Date("9999-12-31");
+      return aDate - bDate;
+    });
+
+  const doPrint = () => {
+    const rows = taraJobs.map(j => {
+      const due = j.due_date ? new Date(j.due_date).toLocaleDateString("en-GB") : "No due date";
+      const lines = (j.lines || []).map(l => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${l.desc}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${l.qty}</td></tr>`).join("");
+      return `
+        <tr style="background:#f0f2f7">
+          <td colspan="2" style="padding:8px 10px;font-weight:700;color:#1a2744">
+            ${j.job_ref} &nbsp;|&nbsp; PO: ${j.po_number || "—"} &nbsp;|&nbsp; Due: ${due} &nbsp;|&nbsp; ${j.status}
+          </td>
+        </tr>
+        ${lines}
+      `;
+    }).join("");
+
+    const w = window.open("", "_blank");
+    w.document.write(`<!DOCTYPE html><html><head><title>Tara Signs — Outstanding Jobs</title>
+    <style>body{font-family:Arial,sans-serif;margin:20px;color:#1a2744}table{width:100%;border-collapse:collapse;font-size:13px}@page{margin:15mm}</style>
+    </head><body>
+    <div style="border-bottom:3px solid #1a2744;padding-bottom:10px;margin-bottom:16px;display:flex;justify-content:space-between">
+      <div><strong style="font-size:18px">Riverside Sheetmetal Fabrications Ltd</strong><br><span style="font-size:11px;color:#666">L2 Riverside Industrial Estate, Littlehampton, West Sussex, BN17 5DF</span></div>
+      <div style="text-align:right"><strong>TARA SIGNS — OUTSTANDING JOBS</strong><br><span style="font-size:11px;color:#666">Printed: ${new Date().toLocaleDateString("en-GB")}</span></div>
+    </div>
+    <table>
+      <thead><tr style="background:#1a2744;color:#fff"><th style="padding:8px 10px;text-align:left">Description</th><th style="padding:8px 10px;text-align:center;width:60px">Qty</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:16px;font-size:12px;color:#666">Total outstanding jobs: ${taraJobs.length}</div>
+    </body></html>`);
+    w.document.close();
+    w.print();
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: C.navy }}>Tara Signs — Factory Sheet</div>
+        <Btn onClick={doPrint} small>🖨 Print Factory Sheet</Btn>
+      </div>
+      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 12 }}>Shows all outstanding Tara Signs jobs (excludes Quotes and Invoiced). No pricing shown.</div>
+      {taraJobs.length === 0 && <div style={{ color: C.textLight, fontSize: 13 }}>No outstanding Tara Signs jobs.</div>}
+      {taraJobs.map(j => {
+        const due = j.due_date ? new Date(j.due_date).toLocaleDateString("en-GB") : "No due date";
+        return (
+          <div key={j.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, padding: "10px 14px", marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 6 }}>
+              <strong style={{ color: C.accent }}>{j.job_ref}</strong>
+              <span style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number || "—"}</span>
+              <span style={{ fontSize: 12, color: C.textLight }}>Due: {due}</span>
+              <StatusBadge s={j.status} />
+            </div>
+            {(j.lines || []).map((l, i) => (
+              <div key={i} style={{ fontSize: 13, color: C.text, padding: "3px 0" }}>• {l.desc} × {l.qty}</div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2000,6 +2052,7 @@ export default function App() {
     { id: "customers", label: "👥 Customers" },
     { id: "alerts", label: "⚠️ Alerts" },
     { id: "prices", label: "🔍 Prices" },
+    { id: "tara", label: "🏭 Tara" },
     { id: "hr", label: "👤 HR" },
   ];
 
@@ -2045,6 +2098,7 @@ export default function App() {
         {tab === "customers" && <CustomersList customers={customers} jobs={jobs} onEdit={c => { setEditCustomer(c); setShowCustomerForm(true); }} onCustomerClick={setSelectedCustomer} />}
         {tab === "alerts" && <Alerts jobs={jobs} onJobClick={setSelectedJob} />}
         {tab === "prices" && <PriceSearch jobs={jobs} />}
+        {tab === "tara" && <TaraFactorySheet jobs={jobs} />}
         {tab === "hr" && <HRModule toast={toast} />}
       </div>
 
