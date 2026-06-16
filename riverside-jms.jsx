@@ -1013,11 +1013,11 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
         <Btn onClick={() => setEditing(true)} outline small>✏ Edit</Btn>
-        {job.status !== "Invoiced" && idx < flow.length - 1 && !["In Production", "Part Despatched"].includes(job.status) && (
-          <Btn onClick={advance} small color={C.success}>→ {flow[idx + 1]}</Btn>
-        )}
         {job.status === "Quote" && (
           <Btn onClick={advance} small color={C.success}>→ In Production</Btn>
+        )}
+        {job.status !== "Invoiced" && job.status !== "Quote" && idx < flow.length - 1 && !["In Production", "Part Despatched"].includes(job.status) && (
+          <Btn onClick={advance} small color={C.success}>→ {flow[idx + 1]}</Btn>
         )}
         {job.status !== "Quote" && (
           <Btn onClick={() => setShowDN(!showDN)} small outline>📋 Delivery Note</Btn>
@@ -1027,7 +1027,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
           <Btn onClick={resetDespatch} small danger outline>↺ Reset Despatch</Btn>
         )}
         {job.status === "Quote" && <Btn onClick={() => setView("quote")} small outline>📄 Print Quote</Btn>}
-        <Btn onClick={deleteJob} small danger outline>🗑 Delete</Btn>
+        <Btn onClick={deleteJob} small danger>Delete Job</Btn>
       </div>
     </Modal>
   );
