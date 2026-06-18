@@ -50,6 +50,17 @@ const empBradford = (emp) => { const s = empSpells(emp); return s * s * empSickD
 const daysFromToday = (dateStr) => dateStr ? Math.ceil((new Date(dateStr) - new Date(new Date().toDateString())) / 86400000) : null;
 const onLeaveToday = (emp) => { const t = todayStr(); return (emp.leave || []).find(l => t >= l.from && t <= l.to) || null; };
 
+function useIsMobile() {
+  const [m, setM] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 600px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 600px)");
+    const h = (e) => setM(e.matches);
+    mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h);
+    return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); };
+  }, []);
+  return m;
+}
+
 function useToast() {
   const [toasts, setToasts] = useState([]);
   const add = (msg, type = "success") => {
@@ -75,6 +86,7 @@ function Toasts({ toasts }) {
 }
 
 function Modal({ children, onClose, wide }) {
+  const mobile = useIsMobile();
   useEffect(() => {
     const handler = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
@@ -83,11 +95,12 @@ function Modal({ children, onClose, wide }) {
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-      zIndex: 3000, overflowY: "auto", padding: "32px 16px"
+      zIndex: 3000, overflowY: "auto", padding: mobile ? "0" : "32px 16px"
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: C.white, borderRadius: 10, margin: "0 auto",
-        width: "100%", maxWidth: wide ? 900 : 680, padding: 28,
+        background: C.white, borderRadius: mobile ? 0 : 10, margin: "0 auto",
+        width: "100%", maxWidth: mobile ? "100%" : wide ? 900 : 680,
+        minHeight: mobile ? "100vh" : undefined, padding: mobile ? 12 : 28,
         boxShadow: "0 8px 40px rgba(0,0,0,0.25)"
       }}>
         {children}
@@ -97,14 +110,16 @@ function Modal({ children, onClose, wide }) {
 }
 
 function Btn({ children, onClick, color, outline, small, danger, disabled, style: s }) {
+  const mobile = useIsMobile();
   const bg = disabled ? C.silverLight : danger ? C.danger : outline ? "transparent" : (color || C.accent);
   const col = outline ? (danger ? C.danger : (color || C.accent)) : C.white;
   const bdr = danger ? C.danger : outline ? (color || C.accent) : "transparent";
   return (
     <button onClick={onClick} disabled={disabled} style={{
       background: bg, color: col, border: `2px solid ${bdr}`,
-      borderRadius: 6, padding: small ? "5px 12px" : "8px 18px", fontSize: small ? 12 : 14,
-      fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1, ...s
+      borderRadius: 6, padding: small ? (mobile ? "10px 14px" : "5px 12px") : "8px 18px", fontSize: small ? 12 : 14,
+      fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+      minHeight: mobile ? 44 : undefined, ...s
     }}>{children}</button>
   );
 }
@@ -482,6 +497,7 @@ function FileAttachments({ jobId, jobRef, toast, onDrawingUpload }) {
 }
 
 function DeliveryNoteFlow({ job, onDone, toast }) {
+  const mobile = useIsMobile();
   // Index-based tracking so two lines with identical desc+qty stay distinct.
   const allLines = job.lines || [];
   const pending = allLines.map((l, idx) => ({ l, idx })).filter(({ l }) => remainingQty(l) > 0);
@@ -636,18 +652,18 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
             const rem = remainingQty(l);
             const cur = going[idx] ?? 0;
             return (
-              <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "8px 10px", background: C.silverLighter, borderRadius: 4, marginBottom: 6 }}>
+              <div key={idx} style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr auto", gap: 10, alignItems: "center", padding: mobile ? "12px" : "8px 10px", background: C.silverLighter, borderRadius: 4, marginBottom: 6 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{l.desc}</div>
                   <div style={{ fontSize: 11, color: C.textLight }}>
                     Ordered {l.qty}{dqty(l) > 0 ? ` · ${dqty(l)} already sent · ${rem} remaining` : ""}
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <button onClick={() => setQty(idx, cur - 1)} style={{ background: C.navy, color: "#fff", border: "none", borderRadius: 4, width: 32, height: 32, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>−</button>
+                <div style={{ display: "flex", alignItems: "center", gap: mobile ? 10 : 6, justifyContent: mobile ? "center" : "flex-start" }}>
+                  <button onClick={() => setQty(idx, cur - 1)} style={{ background: C.navy, color: "#fff", border: "none", borderRadius: 4, width: mobile ? 44 : 32, height: mobile ? 44 : 32, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>−</button>
                   <input type="number" min="0" max={rem} value={cur} onChange={e => setQty(idx, e.target.value)}
-                    style={{ width: 56, padding: "7px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 14, textAlign: "center", fontWeight: 700 }} />
-                  <button onClick={() => setQty(idx, cur + 1)} style={{ background: C.navy, color: "#fff", border: "none", borderRadius: 4, width: 32, height: 32, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>+</button>
+                    style={{ width: mobile ? 72 : 56, padding: "7px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: mobile ? 16 : 14, textAlign: "center", fontWeight: 700, minHeight: mobile ? 44 : undefined, boxSizing: "border-box" }} />
+                  <button onClick={() => setQty(idx, cur + 1)} style={{ background: C.navy, color: "#fff", border: "none", borderRadius: 4, width: mobile ? 44 : 32, height: mobile ? 44 : 32, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>+</button>
                   <span style={{ fontSize: 11, color: C.textLight, minWidth: 34 }}>of {rem}</span>
                 </div>
               </div>
@@ -664,6 +680,7 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
 
 function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
   const isNew = !job;
+  const mobile = useIsMobile();
   const blank = { customer_id: "", customer_name: "", contact_id: "", contact_name: "", description: "", po_number: "", status: "In Production", priority: "Normal", quote_ref: "", quote_status: "N/A", quote_date: todayStr(), lines: [{ desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }], stages: [], stages_complete: {}, drawing_number: "", drawing_attached: false, date_received: todayStr(), due_date: "", notes: "" };
   const [form, setForm] = useState(isNew ? blank : { ...blank, ...job });
   const [lines, setLines] = useState((isNew ? blank : job).lines || [{ desc: "", qty: 1, price: "", drawingNo: "", despatched: false, despatchDate: null }]);
@@ -737,7 +754,7 @@ function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
         <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>{isNew ? "New Job" : `Edit ${job.job_ref}`}</div>
         <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>×</button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
           <label style={lbl}>Customer *</label>
           <select value={form.customer_id} onChange={e => pickCustomer(e.target.value)} style={inp}>
@@ -1124,6 +1141,8 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
 function MonthlyHours({ emp, bankHolidays }) {
   const now = new Date();
+  const mobile = useIsMobile();
+  const [editDay, setEditDay] = useState(null);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [entries, setEntries] = useState({});
@@ -1313,10 +1332,11 @@ function MonthlyHours({ emp, bankHolidays }) {
         <thead>
           <tr style={{ background: C.navy, color: C.white }}>
             <th style={{ padding: "6px 8px", textAlign: "left" }}>Day</th>
-            <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Start</th>
-            <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Finish</th>
+            {!mobile && <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Start</th>}
+            {!mobile && <th style={{ padding: "6px 8px", textAlign: "center", width: 80 }}>Finish</th>}
             <th style={{ padding: "6px 8px", textAlign: "center", width: 70 }}>Hours</th>
             <th style={{ padding: "6px 8px", textAlign: "right", width: 80 }}>Pay</th>
+            {mobile && <th style={{ padding: "6px 8px", textAlign: "center", width: 60 }}></th>}
           </tr>
         </thead>
         <tbody>
@@ -1333,10 +1353,42 @@ function MonthlyHours({ emp, bankHolidays }) {
             let statusCell = null;
             if (isBH) {
               rowBg = "#fff8e1";
-              statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: "#b8860b", fontStyle: "italic" }}>Bank Holiday</td>;
+              statusCell = <td colSpan={mobile ? 3 : 3} style={{ padding: "6px 8px", textAlign: "center", color: "#b8860b", fontStyle: "italic" }}>Bank Holiday</td>;
             } else if (leave) {
               rowBg = leave === "Holiday" ? "#e8f5e9" : "#fff0f0";
-              statusCell = <td colSpan={3} style={{ padding: "6px 8px", textAlign: "center", color: leave === "Holiday" ? C.success : C.danger, fontStyle: "italic" }}>{leave}</td>;
+              statusCell = <td colSpan={mobile ? 3 : 3} style={{ padding: "6px 8px", textAlign: "center", color: leave === "Holiday" ? C.success : C.danger, fontStyle: "italic" }}>{leave}</td>;
+            }
+            // ── Mobile row: Day | Hours | Pay | Edit, with an expandable
+            //    time-entry sub-row revealed on tap (Phase 5 #3). ──
+            if (mobile) {
+              const expanded = editDay === ds;
+              return [
+                <tr key={ds} style={{ background: rowBg }}>
+                  <td style={{ padding: "8px", fontWeight: isSat ? 700 : 400, color: isSat ? C.accent : C.text }}>{dayLabel}{isSat ? " (OT)" : ""}</td>
+                  {statusCell || (
+                    <td style={{ padding: "8px", textAlign: "center", fontWeight: 600, color: hrs > 0 ? C.navy : C.textLight }}>{hrs > 0 ? hrs.toFixed(2) : "—"}</td>
+                  )}
+                  {!statusCell && <td style={{ padding: "8px", textAlign: "right", color: pay > 0 ? C.success : C.textLight }}>{pay > 0 ? `£${pay.toFixed(2)}` : "—"}</td>}
+                  {statusCell && <td style={{ padding: "8px" }}></td>}
+                  <td style={{ padding: "4px 8px", textAlign: "center" }}>
+                    {!statusCell && (
+                      <button onClick={() => setEditDay(expanded ? null : ds)} style={{ background: expanded ? C.navy : "transparent", color: expanded ? C.white : C.accent, border: `1px solid ${C.accent}`, borderRadius: 4, padding: "8px 10px", minHeight: 36, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{expanded ? "Done" : "Edit"}</button>
+                    )}
+                  </td>
+                </tr>,
+                (expanded && !statusCell) ? (
+                  <tr key={ds + "-edit"} style={{ background: rowBg }}>
+                    <td colSpan={4} style={{ padding: "4px 8px 12px" }}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <label style={{ fontSize: 11, color: C.textLight }}>Start</label>
+                        <input type="time" value={e.start || ""} onChange={ev => updateEntry(ds, "start", ev.target.value)} style={{ ...inp, flex: 1, minHeight: 40 }} />
+                        <label style={{ fontSize: 11, color: C.textLight }}>Finish</label>
+                        <input type="time" value={e.finish || ""} onChange={ev => updateEntry(ds, "finish", ev.target.value)} style={{ ...inp, flex: 1, minHeight: 40 }} />
+                      </div>
+                    </td>
+                  </tr>
+                ) : null
+              ];
             }
             return (
               <tr key={ds} style={{ background: rowBg }}>
@@ -1369,17 +1421,18 @@ function MonthlyHours({ emp, bankHolidays }) {
         <tfoot>
           {adjustment !== 0 && (
             <tr style={{ background: adjustment > 0 ? "#e8f5e9" : "#fff0f0", fontWeight: 600 }}>
-              <td colSpan={3} style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: C.textLight }}>
-                Recorded hours subtotal
+              <td colSpan={mobile ? 1 : 3} style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: C.textLight }}>
+                Recorded{mobile ? "" : " hours subtotal"}
               </td>
               <td style={{ padding: "6px 10px", textAlign: "center", fontSize: 12 }}>{totalHours.toFixed(2)} hrs</td>
               <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12 }}>£{(totalHours * rate).toFixed(2)}</td>
+              {mobile && <td></td>}
             </tr>
           )}
           {adjustment !== 0 && (
             <tr style={{ background: adjustment > 0 ? "#e8f5e9" : "#fff0f0", fontWeight: 600 }}>
-              <td colSpan={3} style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: adjustment > 0 ? C.success : C.danger }}>
-                Adjustment{adjustmentNote ? `: ${adjustmentNote}` : ""}
+              <td colSpan={mobile ? 1 : 3} style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: adjustment > 0 ? C.success : C.danger }}>
+                Adj.{!mobile && adjustmentNote ? `: ${adjustmentNote}` : ""}
               </td>
               <td style={{ padding: "6px 10px", textAlign: "center", fontSize: 12, color: adjustment > 0 ? C.success : C.danger }}>
                 {adjustment > 0 ? "+" : ""}{adjustment.toFixed(2)} hrs
@@ -1387,12 +1440,14 @@ function MonthlyHours({ emp, bankHolidays }) {
               <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: adjustment > 0 ? C.success : C.danger }}>
                 {adjustment > 0 ? "+" : ""}£{(adjustment * rate).toFixed(2)}
               </td>
+              {mobile && <td></td>}
             </tr>
           )}
           <tr style={{ background: C.navy, color: C.white, fontWeight: 700 }}>
-            <td colSpan={3} style={{ padding: "8px 10px", textAlign: "right" }}>TOTALS</td>
+            <td colSpan={mobile ? 1 : 3} style={{ padding: "8px 10px", textAlign: "right" }}>TOTAL{mobile ? "" : "S"}</td>
             <td style={{ padding: "8px 10px", textAlign: "center" }}>{adjustedTotal.toFixed(2)} hrs</td>
             <td style={{ padding: "8px 10px", textAlign: "right" }}>£{totalPay.toFixed(2)}</td>
+            {mobile && <td></td>}
           </tr>
         </tfoot>
       </table>
@@ -2179,6 +2234,7 @@ function Dashboard({ jobs, employees = [], onJobClick, onEmployeeClick }) {
 }
 
 function JobsList({ jobs, onJobClick }) {
+  const mobile = useIsMobile();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const statuses = ["All", "Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced", "Needs Review"];
@@ -2208,14 +2264,14 @@ function JobsList({ jobs, onJobClick }) {
         return (
           <div key={j.id} onClick={() => onJobClick(j)}
             style={{ padding: "12px 14px", background: C.white, border: `1px solid ${isOverdue ? C.warning : C.border}`, borderRadius: 6, marginBottom: 6, cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: mobile ? "column" : "row", justifyContent: "space-between", alignItems: mobile ? "stretch" : "flex-start", gap: mobile ? 6 : 0, marginBottom: 6 }}>
+              <div style={{ display: "flex", gap: mobile ? 4 : 10, flexDirection: mobile ? "column" : "row", alignItems: mobile ? "flex-start" : "center", flexWrap: "wrap" }}>
                 <strong style={{ color: C.accent }}>{j.job_ref}</strong>
                 <span style={{ fontWeight: 600 }}>{j.customer_name}</span>
                 {j.po_number && <span style={{ fontSize: 12, color: C.textLight }}>PO: {j.po_number}</span>}
                 {j.due_date && <span style={{ fontSize: 12, color: isOverdue ? C.danger : C.textLight }}>Due: {new Date(j.due_date).toLocaleDateString("en-GB")}</span>}
               </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: mobile ? "space-between" : "flex-end" }}>
                 <StatusBadge s={j.status} />
                 <span style={{ fontWeight: 700 }}>{fmt(lineTotal(j.lines))}</span>
               </div>
@@ -2425,6 +2481,7 @@ export default function App() {
   const [editCustomer, setEditCustomer] = useState(null);
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const { toasts, add: toast } = useToast();
+  const mobile = useIsMobile();
 
   const loadData = useCallback(async () => {
     const [{ data: j }, { data: c }, { data: e }] = await Promise.all([
@@ -2475,7 +2532,7 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "system-ui, sans-serif" }}>
       <Toasts toasts={toasts} />
       <div style={{ background: C.navy, color: C.white, padding: "0 20px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", flexWrap: "wrap", gap: 10 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 900, letterSpacing: 0.5 }}>{COMPANY.name}</div>
             <div style={{ fontSize: 10, opacity: 0.6 }}>Job Management System</div>
@@ -2486,13 +2543,15 @@ export default function App() {
             <Btn small onClick={exportCSV} outline style={{ borderColor: "rgba(255,255,255,0.4)", color: C.white }}>↓ Export</Btn>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+        <div style={{ display: mobile ? "grid" : "flex", gridTemplateColumns: mobile ? "1fr 1fr" : undefined, gap: mobile ? 4 : 2, flexWrap: "wrap", paddingBottom: mobile ? 8 : 0 }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding: "8px 14px", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+              padding: mobile ? "12px 14px" : "8px 14px", minHeight: mobile ? 44 : undefined,
+              border: "none", cursor: "pointer", fontSize: mobile ? 13 : 12, fontWeight: 600,
+              borderRadius: mobile ? 6 : 0,
               background: tab === t.id ? "rgba(255,255,255,0.15)" : "transparent",
               color: tab === t.id ? C.white : "rgba(255,255,255,0.6)",
-              borderBottom: tab === t.id ? `2px solid ${C.white}` : "2px solid transparent",
+              borderBottom: !mobile && tab === t.id ? `2px solid ${C.white}` : (mobile ? "none" : "2px solid transparent"),
             }}>{t.label}</button>
           ))}
         </div>
