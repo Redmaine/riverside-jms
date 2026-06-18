@@ -1391,11 +1391,191 @@ function MonthlyHours({ emp, bankHolidays }) {
   );
 }
 
+// ── Employee add/edit form (Phase 3: + employment details) ─────
+function EmployeeForm({ employee, onSave, onClose, toast }) {
+  const isNew = !employee;
+  const [form, setForm] = useState({
+    name: employee?.name || "",
+    title: employee?.title || "",
+    start_date: employee?.start_date || todayStr(),
+    hourly_rate: employee?.hourly_rate ?? "",
+    address_line1: employee?.address_line1 || "",
+    address_line2: employee?.address_line2 || "",
+    town: employee?.town || "",
+    postcode: employee?.postcode || "",
+    ni_number: employee?.ni_number || "",
+    tax_code: employee?.tax_code || "",
+    probation_end_date: employee?.probation_end_date || "",
+    next_appraisal_date: employee?.next_appraisal_date || "",
+  });
+  // Collapsible employment details — hidden by default. Auto-open on edit if
+  // any of those fields already hold a value.
+  const [showDetails, setShowDetails] = useState(!isNew && !!(employee?.address_line1 || employee?.ni_number || employee?.probation_end_date || employee?.next_appraisal_date));
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = async () => {
+    if (!form.name.trim()) { toast("Name required", "error"); return; }
+    setSaving(true);
+    const payload = {
+      name: form.name.trim(), title: form.title,
+      start_date: form.start_date || null,
+      hourly_rate: parseFloat(form.hourly_rate) || null,
+      address_line1: form.address_line1 || null,
+      address_line2: form.address_line2 || null,
+      town: form.town || null,
+      postcode: form.postcode || null,
+      ni_number: form.ni_number || null,
+      tax_code: form.tax_code || null,
+      probation_end_date: form.probation_end_date || null,
+      next_appraisal_date: form.next_appraisal_date || null,
+    };
+    const { error } = isNew
+      ? await supabase.from("hr_employees").insert({ ...payload, leave: [] })
+      : await supabase.from("hr_employees").update(payload).eq("id", employee.id);
+    setSaving(false);
+    if (error) { toast("Save failed: " + error.message, "error"); return; }
+    toast(isNew ? "Employee added" : "Employee updated");
+    onSave();
+  };
+
+  const inp = { padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
+  const lbl = { fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 };
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>{isNew ? "New Employee" : `Edit ${employee.name}`}</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>×</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div><label style={lbl}>Full Name *</label><input value={form.name} onChange={e => set("name", e.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Job Title</label><input value={form.title} onChange={e => set("title", e.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Start Date</label><input type="date" value={form.start_date} onChange={e => set("start_date", e.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Hourly Rate £</label><input type="number" step="0.01" value={form.hourly_rate} onChange={e => set("hourly_rate", e.target.value)} style={inp} placeholder="0.00" /></div>
+      </div>
+
+      <button onClick={() => setShowDetails(s => !s)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600, padding: 0, marginBottom: showDetails ? 12 : 16 }}>
+        {showDetails ? "▲" : "▼"} Employment details (address, NI, tax code, probation, appraisal)
+      </button>
+
+      {showDetails && (
+        <div style={{ background: C.silverLighter, borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ gridColumn: "1 / -1" }}><label style={lbl}>Address Line 1</label><input value={form.address_line1} onChange={e => set("address_line1", e.target.value)} style={inp} /></div>
+            <div style={{ gridColumn: "1 / -1" }}><label style={lbl}>Address Line 2</label><input value={form.address_line2} onChange={e => set("address_line2", e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>Town</label><input value={form.town} onChange={e => set("town", e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>Postcode</label><input value={form.postcode} onChange={e => set("postcode", e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>NI Number</label><input value={form.ni_number} onChange={e => set("ni_number", e.target.value)} style={inp} placeholder="QQ123456C" /></div>
+            <div><label style={lbl}>Tax Code</label><input value={form.tax_code} onChange={e => set("tax_code", e.target.value)} style={inp} placeholder="1257L" /></div>
+            <div><label style={lbl}>Probation End Date</label><input type="date" value={form.probation_end_date} onChange={e => set("probation_end_date", e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>Next Appraisal Date</label><input type="date" value={form.next_appraisal_date} onChange={e => set("next_appraisal_date", e.target.value)} style={inp} /></div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <Btn outline onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save} disabled={saving}>{saving ? "Saving…" : isNew ? "Add Employee" : "Save Changes"}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Per-employee document store (Phase 3.5) ────────────────────
+function EmployeeDocuments({ employee, toast }) {
+  const [docs, setDocs] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [category, setCategory] = useState("Contract");
+  const [expanded, setExpanded] = useState(false);
+  const CATS = ["Contract", "Handbook", "Certificate", "Other"];
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from("hr_employee_documents").select("*").eq("employee_id", employee.id).order("uploaded_at", { ascending: false });
+    setDocs(data || []);
+  }, [employee.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `hr/${employee.id}/${Date.now()}_${safeName}`;
+      const { error: upErr } = await supabase.storage.from("job-files").upload(path, file);
+      if (upErr) throw upErr;
+      const { error: dbErr } = await supabase.from("hr_employee_documents").insert({ employee_id: employee.id, name: file.name, file_path: path, category });
+      if (dbErr) throw dbErr;
+      toast("Document uploaded");
+      load();
+    } catch (e) { toast("Upload failed: " + e.message, "error"); }
+    setUploading(false);
+  };
+
+  const open = async (d) => {
+    const { data } = await supabase.storage.from("job-files").createSignedUrl(d.file_path, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank"); else toast("Could not open document", "error");
+  };
+
+  const del = async (d) => {
+    if (!window.confirm(`Delete "${d.name}"?`)) return;
+    await supabase.storage.from("job-files").remove([d.file_path]);
+    await supabase.from("hr_employee_documents").delete().eq("id", d.id);
+    toast("Document removed");
+    load();
+  };
+
+  if (!expanded) {
+    return (
+      <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+        <button onClick={() => setExpanded(true)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          ▼ Documents{docs.length > 0 ? ` (${docs.length})` : ""}
+        </button>
+      </div>
+    );
+  }
+
+  const inp = { padding: "5px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12 };
+  return (
+    <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+      <button onClick={() => setExpanded(false)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+        ▲ Documents
+      </button>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+        {CATS.map(c => (
+          <button key={c} onClick={() => setCategory(c)} style={{
+            padding: "4px 10px", border: `2px solid ${category === c ? C.navy : C.border}`,
+            borderRadius: 6, background: category === c ? C.navy : "transparent",
+            color: category === c ? C.white : C.text, cursor: "pointer", fontSize: 12, fontWeight: 600
+          }}>{c}</button>
+        ))}
+      </div>
+      <div onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }} onDragOver={e => e.preventDefault()}
+        style={{ border: `2px dashed ${C.border}`, borderRadius: 6, padding: 12, textAlign: "center", background: C.silverLighter, marginBottom: 8 }}>
+        <input type="file" onChange={e => handleFile(e.target.files[0])} style={{ display: "none" }} id={`empdoc-${employee.id}`} />
+        <label htmlFor={`empdoc-${employee.id}`} style={{ cursor: "pointer", fontSize: 13, color: C.textLight }}>
+          {uploading ? "Uploading…" : `📎 Drag file or click to upload (${category})`}
+        </label>
+      </div>
+      {docs.length === 0 && <div style={{ fontSize: 12, color: C.textLight }}>No documents yet.</div>}
+      {docs.map(d => (
+        <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: C.silverLighter, borderRadius: 4, marginBottom: 4, fontSize: 13 }}>
+          <span style={{ flex: 1 }}>{d.name}</span>
+          <span style={{ fontSize: 11, color: C.textLight, background: "#dde", borderRadius: 10, padding: "2px 8px" }}>{d.category}</span>
+          <span style={{ fontSize: 11, color: C.textLight }}>{d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString("en-GB") : ""}</span>
+          <Btn small outline onClick={() => open(d)}>Open</Btn>
+          <Btn small danger onClick={() => del(d)}>✕</Btn>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function HRModule({ toast }) {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
+  const [editEmployee, setEditEmployee] = useState(null);
   const [leaveForm, setLeaveForm] = useState(null);
   const [bankHolidays, setBankHolidays] = useState([]);
   const [showBankHols, setShowBankHols] = useState(false);
@@ -1482,14 +1662,27 @@ function HRModule({ toast }) {
   const sickDays = (emp) => (emp.leave || []).filter(l => l.type === "Sickness")
     .reduce((s, l) => s + workingDays(l.from, l.to, false), 0);
 
-  const addEmployee = async () => {
-    if (!form.name.trim()) return;
-    const payload = { name: form.name.trim(), title: form.title, start_date: form.startDate || null, hourly_rate: parseFloat(form.hourly_rate) || null, leave: [] };
-    const { error } = await supabase.from("hr_employees").insert(payload);
-    if (error) { toast("Failed to add employee", "error"); return; }
-    setForm({ name: "", title: "", startDate: todayStr(), hourly_rate: "" });
-    setShowForm(false);
-    toast("Employee added");
+  // Bradford Factor = S² × D (S = separate sickness spells, D = total sick days)
+  const sicknessSpells = (emp) => (emp.leave || []).filter(l => l.type === "Sickness").length;
+  const bradfordFactor = (emp) => { const s = sicknessSpells(emp); return s * s * sickDays(emp); };
+  const bradfordBand = (bf) => bf >= 200 ? { col: C.danger, bg: "#fff0f0", label: "High" } : bf >= 50 ? { col: C.warning, bg: "#fff8e1", label: "Moderate" } : { col: C.success, bg: "#e8f5e9", label: "Low" };
+
+  const daysUntil = (dateStr) => dateStr ? Math.ceil((new Date(dateStr) - new Date(new Date().toDateString())) / 86400000) : null;
+
+  const recordAppraisal = async (emp) => {
+    if (!window.confirm(`Record an appraisal for ${emp.name} as today, and set the next one 12 months from now?`)) return;
+    const nd = new Date(); nd.setFullYear(nd.getFullYear() + 1);
+    const { error } = await supabase.from("hr_employees").update({ last_appraisal_date: todayStr(), next_appraisal_date: nd.toISOString().split("T")[0] }).eq("id", emp.id);
+    if (error) { toast("Failed to record appraisal", "error"); return; }
+    toast("Appraisal recorded — next due in 12 months");
+    loadEmployees();
+  };
+
+  const completeProbation = async (emp) => {
+    if (!window.confirm(`Mark ${emp.name}'s probation as passed?`)) return;
+    const { error } = await supabase.from("hr_employees").update({ probation_complete: true, probation_passed_date: todayStr() }).eq("id", emp.id);
+    if (error) { toast("Failed to update probation", "error"); return; }
+    toast("Probation marked as passed");
     loadEmployees();
   };
 
@@ -1531,7 +1724,7 @@ function HRModule({ toast }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>HR — Holiday &amp; Sickness</div>
-        <Btn onClick={() => setShowForm(true)}>+ Add Employee</Btn>
+        <Btn onClick={() => { setEditEmployee(null); setShowForm(true); }}>+ Add Employee</Btn>
       </div>
       <div style={{ fontSize: 12, color: C.textLight, marginBottom: 16 }}>
         Holiday year: 1 Nov – 31 Oct | Personal allowance: {HOLIDAY_ALLOWANCE} days | Bank holidays: separate (see below) | Sickness: unpaid
@@ -1565,30 +1758,9 @@ function HRModule({ toast }) {
       </div>
 
       {showForm && (
-        <div style={{ background: C.silverLighter, borderRadius: 8, padding: 16, marginBottom: 20 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 130px 100px", gap: 10, marginBottom: 10 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Full Name</label>
-              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Job Title</label>
-              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Start Date</label>
-              <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 }}>Hourly Rate £</label>
-              <input type="number" step="0.01" value={form.hourly_rate} onChange={e => setForm(f => ({ ...f, hourly_rate: e.target.value }))} style={{ ...inp, width: "100%", boxSizing: "border-box" }} placeholder="0.00" />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn onClick={addEmployee}>Save Employee</Btn>
-            <Btn outline onClick={() => setShowForm(false)}>Cancel</Btn>
-          </div>
-        </div>
+        <EmployeeForm employee={editEmployee}
+          onSave={() => { setShowForm(false); setEditEmployee(null); loadEmployees(); }}
+          onClose={() => { setShowForm(false); setEditEmployee(null); }} toast={toast} />
       )}
 
       {leaveForm && (
@@ -1648,10 +1820,11 @@ function HRModule({ toast }) {
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn small onClick={() => setLeaveForm({ empId: emp.id, type: "Holiday", from: todayStr(), to: todayStr() })}>+ Add Leave</Btn>
+                <Btn small outline onClick={() => { setEditEmployee(emp); setShowForm(true); }}>✏ Edit</Btn>
                 <Btn small danger onClick={() => delEmployee(emp.id)}>Remove</Btn>
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 10 }}>
               <div style={{ background: C.silverLighter, borderRadius: 6, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>HOLIDAY TAKEN</div>
                 <div style={{ fontSize: 22, fontWeight: 900, color: C.navy }}>{taken}</div>
@@ -1672,10 +1845,61 @@ function HRModule({ toast }) {
                 <div style={{ fontSize: 22, fontWeight: 900, color: sick >= 5 ? C.danger : C.navy }}>{sick}</div>
                 <div style={{ fontSize: 11, color: C.textLight }}>total (unpaid)</div>
               </div>
+              {(() => {
+                const bf = bradfordFactor(emp);
+                const band = bradfordBand(bf);
+                return (
+                  <div title={`Bradford Factor = S² × D, where S = number of separate sickness spells (${sicknessSpells(emp)}) and D = total sick days (${sick}). It weights frequent short absences more heavily than occasional long ones. Green <50, Amber 50–199, Red 200+.`}
+                    style={{ background: band.bg, borderRadius: 6, padding: "10px 14px", cursor: "help" }}>
+                    <div style={{ fontSize: 11, color: C.textLight, fontWeight: 600 }}>BRADFORD FACTOR</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: band.col, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: band.col, display: "inline-block" }}></span>{bf}
+                    </div>
+                    <div style={{ fontSize: 11, color: band.col, fontWeight: 600 }}>{band.label}</div>
+                  </div>
+                );
+              })()}
             </div>
             <div style={{ background: "#eee", borderRadius: 4, height: 8, marginBottom: 10, overflow: "hidden" }}>
               <div style={{ background: pct > 85 ? C.danger : C.accent, width: `${pct}%`, height: "100%", borderRadius: 4 }}></div>
             </div>
+
+            {/* Probation + appraisal status (Phase 3.2 / 3.3) */}
+            {(() => {
+              const banners = [];
+              if (emp.probation_end_date && !emp.probation_complete) {
+                const d = daysUntil(emp.probation_end_date);
+                const urgent = d != null && d <= 30;
+                banners.push(
+                  <div key="prob" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: urgent ? "#fff0f0" : "#fff8e1", border: `1px solid ${urgent ? C.danger : C.warning}`, borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: urgent ? C.danger : "#8a5e00" }}>
+                      🎓 Probation ends {new Date(emp.probation_end_date).toLocaleDateString("en-GB")}
+                      {d != null && ` — ${d < 0 ? `${Math.abs(d)} days overdue` : `${d} day${d !== 1 ? "s" : ""} remaining`}`}
+                    </span>
+                    <Btn small onClick={() => completeProbation(emp)}>Mark probation complete</Btn>
+                  </div>
+                );
+              } else if (emp.probation_complete) {
+                banners.push(
+                  <div key="prob-ok" style={{ background: "#e8f5e9", border: `1px solid ${C.success}`, borderRadius: 6, padding: "8px 12px", marginBottom: 8, fontSize: 13, color: "#1a6b1a", fontWeight: 600 }}>
+                    ✓ Probation passed{emp.probation_passed_date ? ` ${new Date(emp.probation_passed_date).toLocaleDateString("en-GB")}` : ""}
+                  </div>
+                );
+              }
+              const ad = daysUntil(emp.next_appraisal_date);
+              banners.push(
+                <div key="appr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: ad != null && ad <= 30 ? "#fff8e1" : C.silverLighter, border: `1px solid ${ad != null && ad <= 30 ? C.warning : C.border}`, borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, color: C.text }}>
+                    📋 {emp.next_appraisal_date
+                      ? <>Next appraisal {new Date(emp.next_appraisal_date).toLocaleDateString("en-GB")}{ad != null && <strong style={{ color: ad <= 30 ? C.warning : C.textLight, marginLeft: 6 }}>{ad < 0 ? `${Math.abs(ad)} days overdue` : `in ${ad} day${ad !== 1 ? "s" : ""}`}</strong>}</>
+                      : "No appraisal scheduled"}
+                    {emp.last_appraisal_date && <span style={{ fontSize: 11, color: C.textLight, marginLeft: 8 }}>(last: {new Date(emp.last_appraisal_date).toLocaleDateString("en-GB")})</span>}
+                  </span>
+                  <Btn small outline onClick={() => recordAppraisal(emp)}>Record appraisal</Btn>
+                </div>
+              );
+              return banners;
+            })()}
             {(emp.leave || []).length > 0 && (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>LEAVE HISTORY</div>
@@ -1698,6 +1922,7 @@ function HRModule({ toast }) {
               </div>
             )}
             <MonthlyHours emp={emp} bankHolidays={bankHolidays} />
+            <EmployeeDocuments employee={emp} toast={toast} />
           </div>
         );
       })}
