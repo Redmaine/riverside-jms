@@ -1626,7 +1626,9 @@ function HRModule({ toast }) {
 }
 
 function CustomerDetail({ customer, jobs, onClose, onEdit, onJobClick }) {
-  const custJobs = jobs.filter(j => j.customer_id === customer.id || j.customer_name === customer.name);
+  const custJobs = jobs
+    .filter(j => j.customer_id === customer.id || j.customer_name === customer.name)
+    .sort((a, b) => new Date(b.date_received || 0) - new Date(a.date_received || 0));
   return (
     <Modal onClose={onClose} wide>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
@@ -1656,7 +1658,10 @@ function CustomerDetail({ customer, jobs, onClose, onEdit, onJobClick }) {
         {custJobs.map(j => (
           <div key={j.id} onClick={() => onJobClick(j)} style={{ padding: "10px 14px", background: C.silverLighter, borderRadius: 6, marginBottom: 6, cursor: "pointer" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <strong style={{ color: C.accent }}>{j.job_ref}</strong>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <strong style={{ color: C.accent }}>{j.job_ref}</strong>
+                {j.date_received && <span style={{ fontSize: 11, color: C.textLight }}>{new Date(j.date_received).toLocaleDateString("en-GB")}</span>}
+              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <StatusBadge s={j.status} />
                 <strong>{fmt(lineTotal(j.lines))}</strong>
