@@ -905,7 +905,7 @@ function CustomerForm({ customer, onSave, onClose, toast }) {
   );
 }
 
-function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast }) {
+function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast, onCreateInvoice }) {
   const [job, setJob] = useState(initialJob);
   const [view, setView] = useState("detail");
   const [editing, setEditing] = useState(false);
@@ -1133,6 +1133,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
           <Btn onClick={resetDespatch} small danger outline>↺ Reset Despatch</Btn>
         )}
         {job.status === "Quote" && <Btn onClick={() => setView("quote")} small outline>📄 Print Quote</Btn>}
+        {job.status !== "Quote" && onCreateInvoice && <Btn onClick={() => onCreateInvoice(job)} small color={C.accent}>💷 Create Invoice</Btn>}
         <Btn onClick={deleteJob} small danger>Delete Job</Btn>
       </div>
     </Modal>
@@ -2468,12 +2469,381 @@ function PriceSearch({ jobs }) {
   );
 }
 
+// ── INVOICING (Phase 6) ────────────────────────────────────────
+const VAT_RATE = 0.20;
+const PAYMENT_TERMS = ["30 days end of month", "30 days from invoice date", "14 days", "7 days", "60 days end of month", "Due on receipt", "Pro forma"];
+const endOfMonthStr = (dateStr) => { const d = new Date(dateStr); return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split("T")[0]; };
+const computeDueDate = (invoiceDate, terms) => {
+  if (!invoiceDate) return null;
+  switch (terms) {
+    case "Due on receipt": return invoiceDate;
+    case "7 days": return addDays(invoiceDate, 7);
+    case "14 days": return addDays(invoiceDate, 14);
+    case "30 days from invoice date": return addDays(invoiceDate, 30);
+    case "30 days end of month": return addDays(endOfMonthStr(invoiceDate), 30);
+    case "60 days end of month": return addDays(endOfMonthStr(invoiceDate), 60);
+    case "Pro forma": return null;
+    default: return addDays(invoiceDate, 30);
+  }
+};
+const invoiceOverdue = (inv) => inv.status === "unpaid" && inv.due_date && new Date(inv.due_date) < new Date(new Date().toDateString());
+const invoiceDisplayStatus = (inv) => invoiceOverdue(inv) ? "overdue" : inv.status;
+
+function InvoiceStatusBadge({ inv }) {
+  const s = invoiceDisplayStatus(inv);
+  const map = {
+    unpaid: { bg: "#f0e6cc", col: "#8a5e00", label: "Unpaid" },
+    paid: { bg: "#cce5cc", col: "#1a6b1a", label: "Paid" },
+    overdue: { bg: "#ffd6cc", col: "#8a2000", label: "Overdue" },
+    credit: { bg: "#ddd", col: "#444", label: "Credit" },
+  };
+  const m = map[s] || map.unpaid;
+  return <span style={{ background: m.bg, color: m.col, borderRadius: 12, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>{m.label}</span>;
+}
+
+function printInvoice(inv) {
+  const proforma = inv.payment_terms === "Pro forma";
+  const linesHtml = (inv.lines || []).map(l => {
+    const amt = (Number(l.qty) || 0) * (Number(l.price) || 0);
+    return `<tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee">${l.desc || ""}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:center">${l.qty || 0}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right">£${(Number(l.price) || 0).toFixed(2)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right">£${amt.toFixed(2)}</td>
+    </tr>`;
+  }).join("");
+  const w = window.open("", "_blank", "width=900,height=700");
+  w.document.write(`<!DOCTYPE html><html><head><title>${proforma ? "Pro Forma" : "Invoice"} ${inv.invoice_number}</title>
+  <style>body{font-family:Arial,sans-serif;margin:24px;color:#1a2744}table{width:100%;border-collapse:collapse}@page{size:A4 portrait;margin:15mm}</style></head><body>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a2744;padding-bottom:14px;margin-bottom:20px">
+    <div>
+      <div style="font-size:22px;font-weight:900;color:#1a2744">${COMPANY.name}</div>
+      <div style="font-size:11px;color:#666">${COMPANY.address}</div>
+      <div style="font-size:11px;color:#666">Tel: ${COMPANY.phone} · ${COMPANY.email}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:24px;font-weight:900;color:#1a2744">${proforma ? "PRO FORMA" : "INVOICE"}</div>
+      <div style="font-size:14px;font-weight:700">${inv.invoice_number}</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div style="background:#f0f2f7;border-radius:6px;padding:12px">
+      <div style="font-size:10px;font-weight:700;color:#666;letter-spacing:1px;margin-bottom:4px">INVOICE TO</div>
+      <div style="font-size:16px;font-weight:800">${inv.customer_name || ""}</div>
+      ${inv.contact_name ? `<div style="font-size:13px;color:#666">${inv.contact_name}</div>` : ""}
+      ${inv.po_number ? `<div style="font-size:12px;color:#666;margin-top:4px">PO: ${inv.po_number}</div>` : ""}
+    </div>
+    <div style="font-size:13px;text-align:right">
+      <div><strong>Invoice Date:</strong> ${inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString("en-GB") : "—"}</div>
+      ${inv.due_date ? `<div><strong>Due Date:</strong> ${new Date(inv.due_date).toLocaleDateString("en-GB")}</div>` : ""}
+      <div><strong>Terms:</strong> ${inv.payment_terms || "—"}</div>
+      ${inv.job_ref ? `<div><strong>Job Ref:</strong> ${inv.job_ref}</div>` : ""}
+    </div>
+  </div>
+  <table style="font-size:13px;margin-bottom:16px">
+    <thead><tr style="background:#1a2744;color:#fff">
+      <th style="padding:8px 10px;text-align:left">Description</th>
+      <th style="padding:8px 10px;text-align:center;width:60px">Qty</th>
+      <th style="padding:8px 10px;text-align:right;width:100px">Unit Price</th>
+      <th style="padding:8px 10px;text-align:right;width:110px">Amount</th>
+    </tr></thead>
+    <tbody>${linesHtml}</tbody>
+  </table>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:20px">
+    <table style="width:300px;font-size:13px">
+      <tr><td style="padding:6px 10px;text-align:right">Subtotal (excl. VAT)</td><td style="padding:6px 10px;text-align:right;font-weight:700">£${(Number(inv.subtotal) || 0).toFixed(2)}</td></tr>
+      <tr><td style="padding:6px 10px;text-align:right">VAT @ 20%</td><td style="padding:6px 10px;text-align:right;font-weight:700">£${(Number(inv.vat_amount) || 0).toFixed(2)}</td></tr>
+      <tr style="background:#1a2744;color:#fff"><td style="padding:8px 10px;text-align:right;font-weight:700">TOTAL</td><td style="padding:8px 10px;text-align:right;font-weight:900">£${(Number(inv.total) || 0).toFixed(2)}</td></tr>
+    </table>
+  </div>
+  ${inv.notes ? `<div style="font-size:13px;margin-bottom:16px"><strong>Notes:</strong> ${inv.notes}</div>` : ""}
+  ${proforma ? `<div style="background:#fffbe6;border:1px solid #f0d060;border-radius:6px;padding:10px;font-size:12px;margin-bottom:12px">This is a pro forma and is not a VAT invoice or a demand for payment.</div>` : ""}
+  <div style="border-top:1px solid #d0d8e8;padding-top:10px;font-size:11px;color:#666">
+    Payment terms: ${inv.payment_terms || "—"}. Please quote invoice number ${inv.invoice_number} with payment. ${COMPANY.name}.
+  </div>
+  </body></html>`);
+  w.document.close();
+  w.focus();
+}
+
+function InvoiceForm({ invoice, jobs, customers, prefillJob, onSave, onClose, toast }) {
+  const mobile = useIsMobile();
+  const isNew = !invoice;
+  const seed = invoice || {};
+  const [form, setForm] = useState({
+    customer_name: prefillJob?.customer_name || seed.customer_name || "",
+    contact_name: prefillJob?.contact_name || seed.contact_name || "",
+    po_number: prefillJob?.po_number || seed.po_number || "",
+    job_id: prefillJob?.id || seed.job_id || "",
+    job_ref: prefillJob?.job_ref || seed.job_ref || "",
+    invoice_date: seed.invoice_date || todayStr(),
+    payment_terms: seed.payment_terms || "30 days end of month",
+    notes: seed.notes || "",
+  });
+  const [applyVat, setApplyVat] = useState(isNew ? true : Number(seed.vat_amount) > 0);
+  const [lines, setLines] = useState(() => {
+    const src = prefillJob?.lines || seed.lines;
+    if (src && src.length) return src.map(l => ({ desc: l.desc || "", qty: Number(l.qty) || 0, price: Number(l.price) || 0 }));
+    return [{ desc: "", qty: 1, price: "" }];
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const subtotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  const vat = applyVat ? subtotal * VAT_RATE : 0;
+  const total = subtotal + vat;
+  const dueDate = computeDueDate(form.invoice_date, form.payment_terms);
+
+  const pickJob = (jobId) => {
+    const j = jobs.find(x => x.id === jobId);
+    if (!j) { set("job_id", ""); set("job_ref", ""); return; }
+    setForm(f => ({ ...f, job_id: j.id, job_ref: j.job_ref, customer_name: j.customer_name || "", contact_name: j.contact_name || "", po_number: j.po_number || "" }));
+    setLines((j.lines || []).length ? j.lines.map(l => ({ desc: l.desc || "", qty: Number(l.qty) || 0, price: Number(l.price) || 0 })) : [{ desc: "", qty: 1, price: "" }]);
+  };
+
+  const updLine = (i, k, v) => setLines(ls => ls.map((l, j) => j === i ? { ...l, [k]: v } : l));
+  const addLine = () => setLines(ls => [...ls, { desc: "", qty: 1, price: "" }]);
+  const remLine = (i) => setLines(ls => ls.filter((_, j) => j !== i));
+
+  const save = async () => {
+    if (!form.customer_name.trim()) { toast("Customer name required", "error"); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        customer_name: form.customer_name.trim(), contact_name: form.contact_name || null,
+        po_number: form.po_number || null, job_id: form.job_id || null, job_ref: form.job_ref || null,
+        invoice_date: form.invoice_date || todayStr(), due_date: dueDate,
+        payment_terms: form.payment_terms,
+        lines: lines.map(l => ({ desc: l.desc, qty: Number(l.qty) || 0, price: Number(l.price) || 0 })),
+        subtotal, vat_amount: vat, total, notes: form.notes || null,
+      };
+      if (isNew) {
+        const { data: n, error: cErr } = await supabase.rpc("increment_invoice_counter");
+        if (cErr) throw cErr;
+        payload.invoice_number = `INV-${String(n).padStart(3, "0")}`;
+        payload.status = "unpaid";
+        const { error } = await supabase.from("invoices").insert(payload);
+        if (error) throw error;
+        toast(`Invoice ${payload.invoice_number} created`);
+      } else {
+        const { error } = await supabase.from("invoices").update(payload).eq("id", invoice.id);
+        if (error) throw error;
+        toast("Invoice updated");
+      }
+      onSave();
+    } catch (e) { toast("Save failed: " + e.message, "error"); }
+    setSaving(false);
+  };
+
+  const inp = { padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
+  const lbl = { fontSize: 12, fontWeight: 600, color: C.textLight, display: "block", marginBottom: 4 };
+  const invoiceableJobs = jobs.filter(j => j.status !== "Quote");
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>{isNew ? "New Invoice" : `Edit ${invoice.invoice_number}`}</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>×</button>
+      </div>
+
+      {isNew && (
+        <div style={{ background: C.silverLighter, borderRadius: 6, padding: 12, marginBottom: 14 }}>
+          <label style={lbl}>Populate from a job (optional)</label>
+          <select value={form.job_id} onChange={e => pickJob(e.target.value)} style={inp}>
+            <option value="">— Blank invoice —</option>
+            {invoiceableJobs.map(j => <option key={j.id} value={j.id}>{j.job_ref} · {j.customer_name} · {fmt(lineTotal(j.lines))}</option>)}
+          </select>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div><label style={lbl}>Customer *</label><input value={form.customer_name} onChange={e => set("customer_name", e.target.value)} style={inp} list="cust-list" /><datalist id="cust-list">{customers.map(c => <option key={c.id} value={c.name} />)}</datalist></div>
+        <div><label style={lbl}>Contact</label><input value={form.contact_name} onChange={e => set("contact_name", e.target.value)} style={inp} /></div>
+        <div><label style={lbl}>PO Number</label><input value={form.po_number} onChange={e => set("po_number", e.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Invoice Date</label><input type="date" value={form.invoice_date} onChange={e => set("invoice_date", e.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Payment Terms</label><select value={form.payment_terms} onChange={e => set("payment_terms", e.target.value)} style={inp}>{PAYMENT_TERMS.map(t => <option key={t}>{t}</option>)}</select></div>
+        <div><label style={lbl}>Due Date {dueDate ? "" : "(n/a — pro forma)"}</label><input value={dueDate ? new Date(dueDate).toLocaleDateString("en-GB") : "—"} disabled style={{ ...inp, background: C.silverLighter }} /></div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Invoice Lines</div>
+        <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 70px 110px 110px 28px", gap: 6, marginBottom: 4 }}>
+          {!mobile && ["Description", "Qty", "Unit Price", "Amount", ""].map(h => <div key={h} style={{ fontSize: 11, fontWeight: 700, color: C.textLight }}>{h}</div>)}
+        </div>
+        {lines.map((l, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 70px 110px 110px 28px", gap: 6, marginBottom: 6, alignItems: "center", ...(mobile ? { border: `1px solid ${C.border}`, borderRadius: 6, padding: 8 } : {}) }}>
+            <input value={l.desc} onChange={e => updLine(i, "desc", e.target.value)} placeholder="Description" style={inp} />
+            <input value={l.qty} onChange={e => updLine(i, "qty", e.target.value)} type="number" min="0" placeholder="Qty" style={inp} />
+            <input value={l.price} onChange={e => updLine(i, "price", e.target.value)} type="number" min="0" step="0.01" placeholder="Unit £" style={inp} />
+            <div style={{ fontSize: 13, fontWeight: 700, textAlign: mobile ? "left" : "right", color: C.navy }}>{fmt((Number(l.qty) || 0) * (Number(l.price) || 0))}</div>
+            <button onClick={() => remLine(i)} style={{ background: C.danger, color: C.white, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 16, minHeight: mobile ? 40 : undefined }}>×</button>
+          </div>
+        ))}
+        <Btn onClick={addLine} outline small style={{ marginTop: 4 }}>+ Add Line</Btn>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+          <input type="checkbox" checked={applyVat} onChange={e => setApplyVat(e.target.checked)} /> Apply VAT @ 20%
+        </label>
+        <div style={{ minWidth: 240 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}><span>Subtotal</span><strong>{fmt(subtotal)}</strong></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}><span>VAT @ 20%</span><strong>{fmt(vat)}</strong></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, padding: "4px 0", color: C.navy, borderTop: `1px solid ${C.border}`, marginTop: 4 }}><span style={{ fontWeight: 700 }}>Total</span><strong>{fmt(total)}</strong></div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={lbl}>Notes</label>
+        <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} style={{ ...inp, resize: "vertical" }} placeholder="Notes shown on the invoice…" />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <Btn outline onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save} disabled={saving}>{saving ? "Saving…" : isNew ? "Create Invoice" : "Save Changes"}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function InvoicesModule({ jobs, customers, toast, prefillJob, onPrefillConsumed }) {
+  const mobile = useIsMobile();
+  const [invoices, setInvoices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editInvoice, setEditInvoice] = useState(null);
+  const [formPrefillJob, setFormPrefillJob] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("invoices").select("*").order("created_at", { ascending: false });
+    if (!error) setInvoices(data || []);
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  // Opened via "Create Invoice" from a job — auto-open the form prefilled.
+  useEffect(() => {
+    if (prefillJob) {
+      setEditInvoice(null);
+      setFormPrefillJob(prefillJob);
+      setShowForm(true);
+      onPrefillConsumed && onPrefillConsumed();
+    }
+  }, [prefillJob]);
+
+  const markPaid = async (inv) => {
+    const { error } = await supabase.from("invoices").update({ status: "paid", paid_date: todayStr() }).eq("id", inv.id);
+    if (error) { toast("Failed: " + error.message, "error"); return; }
+    toast(`${inv.invoice_number} marked paid`); load();
+  };
+  const markUnpaid = async (inv) => {
+    const { error } = await supabase.from("invoices").update({ status: "unpaid", paid_date: null }).eq("id", inv.id);
+    if (error) { toast("Failed: " + error.message, "error"); return; }
+    toast(`${inv.invoice_number} marked unpaid`); load();
+  };
+  const del = async (inv) => {
+    if (!window.confirm(`Delete invoice ${inv.invoice_number}? This cannot be undone.`)) return;
+    await supabase.from("invoices").delete().eq("id", inv.id);
+    toast(`${inv.invoice_number} deleted`); load();
+  };
+
+  // Aged debtor summary
+  const unpaidInvoices = invoices.filter(i => i.status === "unpaid");
+  const totalUnpaid = unpaidInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0);
+  const overdueList = unpaidInvoices.filter(invoiceOverdue);
+  const totalOverdue = overdueList.reduce((s, i) => s + (Number(i.total) || 0), 0);
+  const weekEnd = addDays(todayStr(), 7);
+  const dueThisWeek = unpaidInvoices.filter(i => i.due_date && i.due_date >= todayStr() && i.due_date <= weekEnd);
+  const totalDueWeek = dueThisWeek.reduce((s, i) => s + (Number(i.total) || 0), 0);
+
+  const filtered = invoices.filter(i => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || (i.invoice_number || "").toLowerCase().includes(q) || (i.customer_name || "").toLowerCase().includes(q) || (i.po_number || "").toLowerCase().includes(q);
+    const ds = invoiceDisplayStatus(i);
+    const matchFilter = filter === "all" || (filter === "unpaid" && i.status === "unpaid" && !invoiceOverdue(i)) || (filter === "overdue" && invoiceOverdue(i)) || (filter === "paid" && i.status === "paid");
+    return matchSearch && matchFilter;
+  });
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.textLight }}>Loading invoices…</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>Invoices</div>
+        <Btn onClick={() => { setEditInvoice(null); setFormPrefillJob(null); setShowForm(true); }} color={C.accent}>+ New Invoice</Btn>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "TOTAL OUTSTANDING", val: fmt(totalUnpaid), sub: `${unpaidInvoices.length} unpaid`, color: C.navy },
+          { label: "OVERDUE", val: fmt(totalOverdue), sub: `${overdueList.length} invoice${overdueList.length !== 1 ? "s" : ""}`, color: totalOverdue > 0 ? C.danger : C.success },
+          { label: "DUE THIS WEEK", val: fmt(totalDueWeek), sub: `${dueThisWeek.length} invoice${dueThisWeek.length !== 1 ? "s" : ""}`, color: totalDueWeek > 0 ? C.warning : C.success },
+        ].map(c => (
+          <div key={c.label} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, letterSpacing: 0.5, marginBottom: 4 }}>{c.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: c.color }}>{c.val}</div>
+            <div style={{ fontSize: 11, color: C.textLight, marginTop: 2 }}>{c.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoices, customers, PO…"
+          style={{ flex: 1, minWidth: 200, padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13 }} />
+        <select value={filter} onChange={e => setFilter(e.target.value)} style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13 }}>
+          <option value="all">All</option>
+          <option value="unpaid">Unpaid</option>
+          <option value="overdue">Overdue</option>
+          <option value="paid">Paid</option>
+        </select>
+      </div>
+
+      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 8 }}>{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</div>
+      {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: C.textLight }}>No invoices. Click “+ New Invoice” to create one.</div>}
+      {filtered.map(inv => (
+        <div key={inv.id} style={{ padding: "12px 14px", background: C.white, border: `1px solid ${invoiceOverdue(inv) ? C.danger : C.border}`, borderRadius: 6, marginBottom: 6 }}>
+          <div style={{ display: "flex", flexDirection: mobile ? "column" : "row", justifyContent: "space-between", gap: mobile ? 8 : 0, alignItems: mobile ? "stretch" : "center" }}>
+            <div style={{ display: "flex", gap: 10, flexDirection: mobile ? "column" : "row", alignItems: mobile ? "flex-start" : "center", flexWrap: "wrap" }}>
+              <strong style={{ color: C.accent }}>{inv.invoice_number}</strong>
+              <span style={{ fontWeight: 600 }}>{inv.customer_name}</span>
+              {inv.po_number && <span style={{ fontSize: 12, color: C.textLight }}>PO: {inv.po_number}</span>}
+              <span style={{ fontSize: 12, color: C.textLight }}>{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString("en-GB") : ""}</span>
+              {inv.due_date && <span style={{ fontSize: 12, color: invoiceOverdue(inv) ? C.danger : C.textLight }}>Due: {new Date(inv.due_date).toLocaleDateString("en-GB")}</span>}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: mobile ? "space-between" : "flex-end" }}>
+              <InvoiceStatusBadge inv={inv} />
+              <strong style={{ fontSize: 15 }}>{fmt(inv.total)}</strong>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+            <Btn small outline onClick={() => printInvoice(inv)}>🖨 Print</Btn>
+            {inv.status !== "paid" && <Btn small color={C.success} onClick={() => markPaid(inv)}>✓ Mark Paid</Btn>}
+            {inv.status === "paid" && <Btn small outline onClick={() => markUnpaid(inv)}>↺ Mark Unpaid</Btn>}
+            <Btn small outline onClick={() => { setEditInvoice(inv); setFormPrefillJob(null); setShowForm(true); }}>✏ Edit</Btn>
+            <Btn small danger onClick={() => del(inv)}>Delete</Btn>
+          </div>
+        </div>
+      ))}
+
+      {showForm && (
+        <InvoiceForm invoice={editInvoice} jobs={jobs} customers={customers} prefillJob={formPrefillJob}
+          onSave={() => { setShowForm(false); setEditInvoice(null); setFormPrefillJob(null); load(); }}
+          onClose={() => { setShowForm(false); setEditInvoice(null); setFormPrefillJob(null); }} toast={toast} />
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [jobs, setJobs] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [hrScrollTarget, setHrScrollTarget] = useState(null);
+  const [invoiceJob, setInvoiceJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -2496,6 +2866,7 @@ export default function App() {
   }, []);
 
   const goToEmployee = (empId) => { setHrScrollTarget(empId); setTab("hr"); };
+  const goToInvoiceForJob = (job) => { setSelectedJob(null); setInvoiceJob(job); setTab("invoices"); };
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -2513,6 +2884,7 @@ export default function App() {
     { id: "dashboard", label: "📊 Dashboard" },
     { id: "jobs", label: "💼 Jobs" },
     { id: "customers", label: "👥 Customers" },
+    { id: "invoices", label: "💷 Invoices" },
     { id: "alerts", label: "⚠️ Alerts" },
     { id: "prices", label: "🔍 Prices" },
     { id: "tara", label: "🏭 Tara" },
@@ -2561,6 +2933,7 @@ export default function App() {
         {tab === "dashboard" && <Dashboard jobs={jobs} employees={employees} onJobClick={setSelectedJob} onEmployeeClick={goToEmployee} />}
         {tab === "jobs" && <JobsList jobs={jobs} onJobClick={setSelectedJob} />}
         {tab === "customers" && <CustomersList customers={customers} jobs={jobs} onEdit={c => { setEditCustomer(c); setShowCustomerForm(true); }} onCustomerClick={setSelectedCustomer} />}
+        {tab === "invoices" && <InvoicesModule jobs={jobs} customers={customers} toast={toast} prefillJob={invoiceJob} onPrefillConsumed={() => setInvoiceJob(null)} />}
         {tab === "alerts" && <Alerts jobs={jobs} onJobClick={setSelectedJob} />}
         {tab === "prices" && <PriceSearch jobs={jobs} />}
         {tab === "tara" && <TaraFactorySheet jobs={jobs} />}
@@ -2579,7 +2952,8 @@ export default function App() {
       )}
       {selectedJob && (
         <JobDetail job={selectedJob} jobs={jobs} customers={customers}
-          onClose={() => setSelectedJob(null)} onRefresh={loadData} toast={toast} />
+          onClose={() => setSelectedJob(null)} onRefresh={loadData} toast={toast}
+          onCreateInvoice={goToInvoiceForJob} />
       )}
       {selectedCustomer && (
         <CustomerDetail customer={selectedCustomer} jobs={jobs}
