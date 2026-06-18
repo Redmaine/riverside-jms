@@ -21,7 +21,11 @@ const COMPANY = {
   name: "Riverside Sheetmetal Fabrications Ltd",
   address: "L2 Riverside Industrial Estate, Littlehampton, West Sussex, BN17 5DF",
   phone: "01903 732486",
-  email: "info@riversidesheetmetal.co.uk"
+  email: "info@riversidesheetmetal.co.uk",
+  vatNumber: "GB 587 6679 60",
+  bankName: "Riverside Sheet Metal & Fabrications Ltd",
+  bankSortCode: "01-01-23",
+  bankAccount: "04023072"
 };
 
 const fmt = (n) => `£${(Number(n) || 0).toFixed(2)}`;
@@ -2520,6 +2524,7 @@ function printInvoice(inv) {
       <div style="font-size:22px;font-weight:900;color:#1a2744">${COMPANY.name}</div>
       <div style="font-size:11px;color:#666">${COMPANY.address}</div>
       <div style="font-size:11px;color:#666">Tel: ${COMPANY.phone} · ${COMPANY.email}</div>
+      <div style="font-size:11px;color:#666">VAT Registration No: ${COMPANY.vatNumber}</div>
     </div>
     <div style="text-align:right">
       <div style="font-size:24px;font-weight:900;color:#1a2744">${proforma ? "PRO FORMA" : "INVOICE"}</div>
@@ -2558,8 +2563,13 @@ function printInvoice(inv) {
   </div>
   ${inv.notes ? `<div style="font-size:13px;margin-bottom:16px"><strong>Notes:</strong> ${inv.notes}</div>` : ""}
   ${proforma ? `<div style="background:#fffbe6;border:1px solid #f0d060;border-radius:6px;padding:10px;font-size:12px;margin-bottom:12px">This is a pro forma and is not a VAT invoice or a demand for payment.</div>` : ""}
+  <div style="background:#f0f2f7;border-radius:6px;padding:12px;margin-bottom:12px">
+    <div style="font-size:10px;font-weight:700;color:#666;letter-spacing:1px;margin-bottom:4px">PAYMENT DETAILS</div>
+    <div style="font-size:13px;font-weight:700;color:#1a2744">Please make payment to: ${COMPANY.bankName} · Sort code: ${COMPANY.bankSortCode} · Account: ${COMPANY.bankAccount}</div>
+  </div>
   <div style="border-top:1px solid #d0d8e8;padding-top:10px;font-size:11px;color:#666">
-    Payment terms: ${inv.payment_terms || "—"}. Please quote invoice number ${inv.invoice_number} with payment. ${COMPANY.name}.
+    Payment terms: ${inv.payment_terms || "—"}. Please quote invoice number ${inv.invoice_number} with payment.<br>
+    ${COMPANY.name} · VAT Registration No: ${COMPANY.vatNumber}
   </div>
   </body></html>`);
   w.document.close();
