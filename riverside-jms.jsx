@@ -37,6 +37,19 @@ const dqty = (l) => l.despatched_qty != null ? (Number(l.despatched_qty) || 0) :
 const isDespatched = (l) => dqty(l) >= (Number(l.qty) || 0) && (Number(l.qty) || 0) > 0;
 const remainingQty = (l) => Math.max(0, (Number(l.qty) || 0) - dqty(l));
 
+// ── Shared HR helpers (used by both Dashboard and HRModule) ────
+const workingDaysBetween = (from, to) => {
+  if (!from || !to) return 0;
+  let count = 0; const cur = new Date(from); const end = new Date(to);
+  while (cur <= end) { const dow = cur.getDay(); if (dow !== 0 && dow !== 6) count++; cur.setDate(cur.getDate() + 1); }
+  return count;
+};
+const empSickDays = (emp) => (emp.leave || []).filter(l => l.type === "Sickness").reduce((s, l) => s + workingDaysBetween(l.from, l.to), 0);
+const empSpells = (emp) => (emp.leave || []).filter(l => l.type === "Sickness").length;
+const empBradford = (emp) => { const s = empSpells(emp); return s * s * empSickDays(emp); };
+const daysFromToday = (dateStr) => dateStr ? Math.ceil((new Date(dateStr) - new Date(new Date().toDateString())) / 86400000) : null;
+const onLeaveToday = (emp) => { const t = todayStr(); return (emp.leave || []).find(l => t >= l.from && t <= l.to) || null; };
+
 function useToast() {
   const [toasts, setToasts] = useState([]);
   const add = (msg, type = "success") => {
@@ -1571,7 +1584,7 @@ function EmployeeDocuments({ employee, toast }) {
   );
 }
 
-function HRModule({ toast }) {
+function HRModule({ toast, scrollTarget, onScrolled }) {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -1589,6 +1602,19 @@ function HRModule({ toast }) {
   }, []);
 
   useEffect(() => { loadEmployees(); }, [loadEmployees]);
+
+  // When navigated here from a dashboard HR alert, scroll to that employee.
+  useEffect(() => {
+    if (!scrollTarget || loading) return;
+    const el = document.getElementById(`emp-card-${scrollTarget}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.style.transition = "box-shadow 0.3s";
+      el.style.boxShadow = `0 0 0 3px ${C.accent}`;
+      setTimeout(() => { el.style.boxShadow = "none"; }, 2000);
+    }
+    onScrolled && onScrolled();
+  }, [scrollTarget, loading]);
 
   const holidayYearStart = () => {
     const now = new Date();
@@ -1809,7 +1835,7 @@ function HRModule({ toast }) {
         const pct = Math.min(100, (taken / HOLIDAY_ALLOWANCE) * 100);
         const BANK_HOL_ALLOWANCE = 8;
         return (
-          <div key={emp.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18, marginBottom: 16 }}>
+          <div key={emp.id} id={`emp-card-${emp.id}`} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18, marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{emp.name}</div>
@@ -1988,7 +2014,7 @@ function CustomerDetail({ customer, jobs, onClose, onEdit, onJobClick }) {
   );
 }
 
-function Dashboard({ jobs, onJobClick }) {
+function Dashboard({ jobs, employees = [], onJobClick, onEmployeeClick }) {
   const [filterStatus, setFilterStatus] = useState(null);
   const [filterAlert, setFilterAlert] = useState(null);
 
@@ -1998,6 +2024,22 @@ function Dashboard({ jobs, onJobClick }) {
   const tomorrowStr = addDays(todayStr(), 1);
   const tomorrowJobs = jobs.filter(j => j.due_date === tomorrowStr && !["Fully Despatched", "Ready to Invoice", "Invoiced"].includes(j.status));
   const statuses = ["Quote", "In Production", "Part Despatched", "Fully Despatched", "Ready to Invoice", "Invoiced"];
+
+  // ── Phase 4: HR alerts + "Today" data ──
+  const hrAlerts = [];
+  employees.forEach(emp => {
+    if (emp.probation_end_date && !emp.probation_complete) {
+      const d = daysFromToday(emp.probation_end_date);
+      if (d != null && d <= 30) hrAlerts.push({ id: emp.id, name: emp.name, kind: "probation", urgent: true, text: d < 0 ? `Probation overdue by ${Math.abs(d)} days` : `Probation ends in ${d} day${d !== 1 ? "s" : ""}` });
+    }
+    const ad = daysFromToday(emp.next_appraisal_date);
+    if (ad != null && ad <= 30) hrAlerts.push({ id: emp.id, name: emp.name, kind: "appraisal", urgent: false, text: ad < 0 ? `Appraisal overdue by ${Math.abs(ad)} days` : `Appraisal due in ${ad} day${ad !== 1 ? "s" : ""}` });
+    const bf = empBradford(emp);
+    if (bf >= 200) hrAlerts.push({ id: emp.id, name: emp.name, kind: "bradford", urgent: true, text: `Bradford Factor ${bf} (high absence)` });
+  });
+
+  const todayJobs = jobs.filter(j => j.due_date === todayStr() && j.status !== "Invoiced");
+  const staffOnLeave = employees.map(emp => ({ emp, leave: onLeaveToday(emp) })).filter(x => x.leave);
 
   const alertJobList = filterAlert === "overdue" ? overdueJobs : filterAlert === "invoice" ? invoiceJobs : filterAlert === "tomorrow" ? tomorrowJobs : null;
 
@@ -2048,6 +2090,48 @@ function Dashboard({ jobs, onJobClick }) {
           );
         })}
       </div>
+
+      {/* Phase 4.2 — Today */}
+      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 10 }}>📅 TODAY — {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>DUE TODAY ({todayJobs.length}){overdueJobs.length > 0 ? ` · ${overdueJobs.length} overdue` : ""}</div>
+            {todayJobs.length === 0 && <div style={{ fontSize: 12, color: C.textLight }}>Nothing due today ✓</div>}
+            {todayJobs.map(j => (
+              <div key={j.id} onClick={() => onJobClick(j)} style={{ padding: "6px 10px", background: C.silverLighter, borderRadius: 4, marginBottom: 4, cursor: "pointer", fontSize: 12, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span><strong style={{ color: C.accent }}>{j.job_ref}</strong> {j.customer_name}</span>
+                <StatusBadge s={j.status} />
+              </div>
+            ))}
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>STAFF ON LEAVE TODAY ({staffOnLeave.length})</div>
+            {staffOnLeave.length === 0 && <div style={{ fontSize: 12, color: C.textLight }}>Everyone in today ✓</div>}
+            {staffOnLeave.map(({ emp, leave }) => (
+              <div key={emp.id} style={{ padding: "6px 10px", background: leave.type === "Holiday" ? "#e8f5e9" : "#fff0f0", borderRadius: 4, marginBottom: 4, fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}>
+                <span>{leave.type === "Holiday" ? "🌴" : "🤒"}</span>
+                <span style={{ flex: 1 }}>{emp.name}</span>
+                <span style={{ color: C.textLight }}>{leave.type} until {new Date(leave.to).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Phase 4.1 — HR alerts */}
+      {hrAlerts.length > 0 && (
+        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 10 }}>👤 HR ALERTS ({hrAlerts.length})</div>
+          {hrAlerts.map((a, i) => (
+            <div key={i} onClick={() => onEmployeeClick && onEmployeeClick(a.id)}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 12px", background: a.urgent ? "#fff0f0" : "#fff8e1", border: `1px solid ${a.urgent ? C.danger : C.warning}`, borderRadius: 6, marginBottom: 6, cursor: "pointer", fontSize: 13 }}>
+              <span><strong>{a.name}</strong> — {a.text}</span>
+              <span style={{ fontSize: 11, color: a.urgent ? C.danger : C.warning, fontWeight: 700 }}>{a.kind === "probation" ? "PROBATION" : a.kind === "appraisal" ? "APPRAISAL" : "ABSENCE"} →</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {(filterStatus || filterAlert) ? (
         <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2332,6 +2416,8 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [jobs, setJobs] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [hrScrollTarget, setHrScrollTarget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -2341,14 +2427,18 @@ export default function App() {
   const { toasts, add: toast } = useToast();
 
   const loadData = useCallback(async () => {
-    const [{ data: j }, { data: c }] = await Promise.all([
+    const [{ data: j }, { data: c }, { data: e }] = await Promise.all([
       supabase.from("jobs").select("*").order("created_at", { ascending: false }),
-      supabase.from("customers").select("*").order("name")
+      supabase.from("customers").select("*").order("name"),
+      supabase.from("hr_employees").select("*").order("name")
     ]);
     setJobs(j || []);
     setCustomers(c || []);
+    setEmployees(e || []);
     setLoading(false);
   }, []);
+
+  const goToEmployee = (empId) => { setHrScrollTarget(empId); setTab("hr"); };
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -2409,13 +2499,13 @@ export default function App() {
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 16px" }}>
-        {tab === "dashboard" && <Dashboard jobs={jobs} onJobClick={setSelectedJob} />}
+        {tab === "dashboard" && <Dashboard jobs={jobs} employees={employees} onJobClick={setSelectedJob} onEmployeeClick={goToEmployee} />}
         {tab === "jobs" && <JobsList jobs={jobs} onJobClick={setSelectedJob} />}
         {tab === "customers" && <CustomersList customers={customers} jobs={jobs} onEdit={c => { setEditCustomer(c); setShowCustomerForm(true); }} onCustomerClick={setSelectedCustomer} />}
         {tab === "alerts" && <Alerts jobs={jobs} onJobClick={setSelectedJob} />}
         {tab === "prices" && <PriceSearch jobs={jobs} />}
         {tab === "tara" && <TaraFactorySheet jobs={jobs} />}
-        {tab === "hr" && <HRModule toast={toast} />}
+        {tab === "hr" && <HRModule toast={toast} scrollTarget={hrScrollTarget} onScrolled={() => setHrScrollTarget(null)} />}
       </div>
 
       {showJobForm && (
