@@ -29,6 +29,14 @@ const lineTotal = (lines) => (lines || []).reduce((s, l) => s + (Number(l.qty) |
 const todayStr = () => new Date().toISOString().split("T")[0];
 const addDays = (d, n) => { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]; };
 
+// ── Despatch quantity helpers (Phase 2 Bug 3) ──────────────────
+// Backward compatible: old job lines only have a `despatched` boolean and no
+// `despatched_qty`. Treat a missing despatched_qty as the full qty when the
+// legacy flag is true, otherwise 0. No data migration required.
+const dqty = (l) => l.despatched_qty != null ? (Number(l.despatched_qty) || 0) : (l.despatched ? (Number(l.qty) || 0) : 0);
+const isDespatched = (l) => dqty(l) >= (Number(l.qty) || 0) && (Number(l.qty) || 0) > 0;
+const remainingQty = (l) => Math.max(0, (Number(l.qty) || 0) - dqty(l));
+
 function useToast() {
   const [toasts, setToasts] = useState([]);
   const add = (msg, type = "success") => {
@@ -461,35 +469,67 @@ function FileAttachments({ jobId, jobRef, toast, onDrawingUpload }) {
 }
 
 function DeliveryNoteFlow({ job, onDone, toast }) {
-  const pendingLines = (job.lines || []).filter(l => !l.despatched);
-  const doneLines = (job.lines || []).filter(l => l.despatched);
-  const [selected, setSelected] = useState(() => pendingLines.map((_, i) => i));
+  // Index-based tracking so two lines with identical desc+qty stay distinct.
+  const allLines = job.lines || [];
+  const pending = allLines.map((l, idx) => ({ l, idx })).filter(({ l }) => remainingQty(l) > 0);
+  const doneAlready = allLines.map((l, idx) => ({ l, idx })).filter(({ l }) => dqty(l) > 0);
+  // going[idx] = how many of that line to despatch today (defaults to remaining)
+  const [going, setGoing] = useState(() => {
+    const init = {};
+    pending.forEach(({ l, idx }) => { init[idx] = remainingQty(l); });
+    return init;
+  });
   const [noteText, setNoteText] = useState("");
   const [step, setStep] = useState("select");
   const [dnItems, setDnItems] = useState([]);
   const [emailAddr, setEmailAddr] = useState("");
   const [showEmail, setShowEmail] = useState(false);
 
-  const toggle = (i) => setSelected(s => s.includes(i) ? s.filter(x => x !== i) : [...s, i]);
+  const setQty = (idx, val) => {
+    const max = remainingQty(allLines[idx]);
+    let n = Math.floor(Number(val) || 0);
+    if (n < 0) n = 0;
+    if (n > max) n = max;
+    setGoing(g => ({ ...g, [idx]: n }));
+  };
+
+  const totalGoing = Object.values(going).reduce((s, n) => s + (Number(n) || 0), 0);
 
   const confirm = async () => {
-    const going = pendingLines.filter((_, i) => selected.includes(i));
-    if (!going.length) { toast("Select at least one item", "error"); return; }
+    if (totalGoing <= 0) { toast("Enter a quantity for at least one item", "error"); return; }
     const now = todayStr();
-    const updatedLines = (job.lines || []).map(l => {
-      const match = going.find(g => g.desc === l.desc && String(g.qty) === String(l.qty));
-      return match && !l.despatched ? { ...l, despatched: true, despatchDate: now } : l;
+    const updatedLines = allLines.map((l, idx) => {
+      const g = Number(going[idx]) || 0;
+      if (g <= 0) return l;
+      const newDq = dqty(l) + g;
+      const fully = newDq >= (Number(l.qty) || 0);
+      return { ...l, despatched_qty: newDq, despatched: fully, despatchDate: now };
     });
-    const allDone = updatedLines.every(l => l.despatched);
+    const allDone = updatedLines.every(l => dqty(l) >= (Number(l.qty) || 0));
     const newStatus = allDone ? "Fully Despatched" : "Part Despatched";
     await supabase.from("jobs").update({ lines: updatedLines, status: newStatus }).eq("id", job.id);
-    setDnItems(going);
+    const items = pending
+      .filter(({ idx }) => (Number(going[idx]) || 0) > 0)
+      .map(({ l, idx }) => ({
+        desc: l.desc, drawingNo: l.drawingNo || "",
+        totalQty: Number(l.qty) || 0,
+        prevQty: dqty(l),
+        goingQty: Number(going[idx]) || 0,
+        remaining: remainingQty(l) - (Number(going[idx]) || 0),
+      }));
+    setDnItems(items);
     setStep("send");
   };
 
   const doPrint = () => {
     const itemsHtml = dnItems.map(l =>
-      `<tr><td style="padding:8px 10px">${l.desc}</td><td style="padding:8px 10px;text-align:center">${l.qty}</td><td style="padding:8px 10px">${l.drawingNo || ""}</td><td style="padding:8px 10px;text-align:center"></td></tr>`
+      `<tr>
+        <td style="padding:8px 10px;border-bottom:1px solid #eee">${l.desc}${l.drawingNo ? `<br><span style="font-size:10px;color:#888">Dwg: ${l.drawingNo}</span>` : ""}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:center">${l.totalQty}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:center">${l.prevQty}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:center;font-weight:700">${l.goingQty}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:center">${l.remaining}</td>
+      </tr>`
     ).join("");
     const copy = (n, t) => `
       <div style="page-break-after:${n < t ? "always" : "auto"};padding-bottom:20px">
@@ -520,9 +560,10 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="background:#1a2744;color:#fff">
             <th style="padding:8px 10px;text-align:left">Description</th>
-            <th style="padding:8px 10px;text-align:center;width:60px">Qty</th>
-            <th style="padding:8px 10px;text-align:left;width:100px">Drawing No</th>
-            <th style="padding:8px 10px;text-align:center;width:80px">Received ✓</th>
+            <th style="padding:8px 10px;text-align:center;width:70px">Total Qty</th>
+            <th style="padding:8px 10px;text-align:center;width:90px">Prev. Despatched</th>
+            <th style="padding:8px 10px;text-align:center;width:80px">Going Today</th>
+            <th style="padding:8px 10px;text-align:center;width:80px">Remaining</th>
           </tr></thead>
           <tbody>${itemsHtml}</tbody>
         </table>
@@ -560,33 +601,48 @@ function DeliveryNoteFlow({ job, onDone, toast }) {
 
   return (
     <div>
-      {doneLines.length > 0 && (
+      {doneAlready.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>PREVIOUSLY DESPATCHED</div>
-          {doneLines.map((l, i) => (
-            <div key={i} style={{ display: "flex", gap: 10, padding: "6px 10px", background: "#e8f5e9", borderRadius: 4, marginBottom: 4, fontSize: 13 }}>
-              <span style={{ color: C.success }}>✓</span>
-              <span style={{ flex: 1 }}>{l.desc} × {l.qty}</span>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>ALREADY DESPATCHED</div>
+          {doneAlready.map(({ l, idx }) => (
+            <div key={idx} style={{ display: "flex", gap: 10, padding: "6px 10px", background: "#e8f5e9", borderRadius: 4, marginBottom: 4, fontSize: 13 }}>
+              <span style={{ color: C.success }}>{isDespatched(l) ? "✓" : "◐"}</span>
+              <span style={{ flex: 1 }}>{l.desc}</span>
+              <span style={{ fontSize: 12, color: C.textLight }}>{dqty(l)} of {l.qty} sent</span>
               <span style={{ fontSize: 11, color: C.textLight }}>{l.despatchDate ? new Date(l.despatchDate).toLocaleDateString("en-GB") : ""}</span>
             </div>
           ))}
         </div>
       )}
-      {pendingLines.length === 0 ? (
-        <div style={{ color: C.textLight, fontSize: 14 }}>All items have already been despatched.</div>
+      {pending.length === 0 ? (
+        <div style={{ color: C.textLight, fontSize: 14 }}>All items have been fully despatched.</div>
       ) : (
         <>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>SELECT ITEMS GOING TODAY</div>
-          {pendingLines.map((l, i) => (
-            <div key={i} onClick={() => toggle(i)} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px", background: selected.includes(i) ? "#e8f5e9" : C.silverLighter, borderRadius: 4, marginBottom: 4, cursor: "pointer" }}>
-              <input type="checkbox" checked={selected.includes(i)} onChange={() => toggle(i)} onClick={e => e.stopPropagation()} />
-              <span style={{ flex: 1, fontSize: 13 }}>{l.desc}</span>
-              <span style={{ fontSize: 12, color: C.textLight }}>× {l.qty}</span>
-            </div>
-          ))}
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>HOW MANY TO DESPATCH TODAY?</div>
+          {pending.map(({ l, idx }) => {
+            const rem = remainingQty(l);
+            const cur = going[idx] ?? 0;
+            return (
+              <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "8px 10px", background: C.silverLighter, borderRadius: 4, marginBottom: 6 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{l.desc}</div>
+                  <div style={{ fontSize: 11, color: C.textLight }}>
+                    Ordered {l.qty}{dqty(l) > 0 ? ` · ${dqty(l)} already sent · ${rem} remaining` : ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button onClick={() => setQty(idx, cur - 1)} style={{ background: C.navy, color: "#fff", border: "none", borderRadius: 4, width: 32, height: 32, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>−</button>
+                  <input type="number" min="0" max={rem} value={cur} onChange={e => setQty(idx, e.target.value)}
+                    style={{ width: 56, padding: "7px 8px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 14, textAlign: "center", fontWeight: 700 }} />
+                  <button onClick={() => setQty(idx, cur + 1)} style={{ background: C.navy, color: "#fff", border: "none", borderRadius: 4, width: 32, height: 32, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>+</button>
+                  <span style={{ fontSize: 11, color: C.textLight, minWidth: 34 }}>of {rem}</span>
+                </div>
+              </div>
+            );
+          })}
           <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Optional note (driver, vehicle…)"
             style={{ width: "100%", padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 13, boxSizing: "border-box", margin: "10px 0" }} />
-          <Btn onClick={confirm} disabled={!selected.length}>Confirm & Create Delivery Note</Btn>
+          <Btn onClick={confirm} disabled={totalGoing <= 0}>Confirm &amp; Create Delivery Note ({totalGoing} item{totalGoing !== 1 ? "s" : ""})</Btn>
         </>
       )}
     </div>
@@ -612,7 +668,7 @@ function JobForm({ job, customers, allJobs, onSave, onClose, toast }) {
     set("customer_name", c?.name || "");
     set("contact_id", "");
     set("contact_name", "");
-    if (c?.name === "Tara Signs") setLaserPrompt(true);
+    if (c?.name === "Tara Signs Ltd") setLaserPrompt(true);
   };
 
   const save = async () => {
@@ -755,12 +811,27 @@ function CustomerForm({ customer, onSave, onClose, toast }) {
     if (!name.trim()) { toast("Name required", "error"); return; }
     setSaving(true);
     try {
-      const payload = { name: name.trim(), contacts, notes };
+      const newName = name.trim();
+      const oldName = customer?.name;
+      const payload = { name: newName, contacts, notes };
       const { error } = customer
         ? await supabase.from("customers").update(payload).eq("id", customer.id)
         : await supabase.from("customers").insert(payload);
       if (error) throw error;
-      toast(customer ? "Customer updated" : `${name} added`);
+      // Bug 1 fix: a job stores customer_name as text at creation time. If the
+      // customer is later renamed, existing jobs keep the old text and Zapier's
+      // "Find Customer" step fails in QuickBooks. Offer to cascade the rename.
+      if (customer && oldName && oldName !== newName) {
+        if (window.confirm("Update customer name on all existing jobs? This ensures QuickBooks invoicing continues to work.")) {
+          const { error: jobErr } = await supabase.from("jobs").update({ customer_name: newName }).eq("customer_name", oldName);
+          if (jobErr) toast("Customer saved, but updating jobs failed: " + jobErr.message, "error");
+          else toast("Customer and all linked jobs updated");
+        } else {
+          toast("Customer updated (existing jobs keep the old name)");
+        }
+      } else {
+        toast(customer ? "Customer updated" : `${newName} added`);
+      }
       onSave();
     } catch (e) { toast("Save failed: " + e.message, "error"); }
     setSaving(false);
@@ -873,7 +944,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
 
   const resetDespatch = async () => {
     if (!window.confirm("Reset all despatch flags? This will mark all items as not despatched.")) return;
-    const resetLines = (job.lines || []).map(l => ({ ...l, despatched: false, despatchDate: null }));
+    const resetLines = (job.lines || []).map(l => ({ ...l, despatched: false, despatched_qty: 0, despatchDate: null }));
     await supabase.from("jobs").update({ lines: resetLines, status: "In Production" }).eq("id", job.id);
     toast("Despatch flags reset");
     setJob(j => ({ ...j, lines: resetLines, status: "In Production" }));
@@ -946,23 +1017,28 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
       {(job.lines || []).length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>ORDER LINES</div>
-          {(job.lines || []).map((l, i) => (
-            <div key={i} style={{
-              display: "grid", gridTemplateColumns: "1fr 60px 70px 80px 100px", gap: 8,
-              padding: "7px 10px", marginBottom: 4,
-              background: l.despatched ? "#e8f5e9" : C.silverLighter, borderRadius: 4, fontSize: 13
-            }}>
-              <span style={{ textDecoration: l.despatched ? "line-through" : "none", color: l.despatched ? C.textLight : C.text }}>
-                {l.despatched ? "✓ " : ""}{l.desc}
-              </span>
-              <span style={{ textAlign: "center" }}>× {l.qty}</span>
-              <span style={{ textAlign: "right", color: C.textLight, fontSize: 12 }}>{fmt(l.price)} ea</span>
-              <span style={{ textAlign: "right" }}>{fmt((l.qty || 0) * (l.price || 0))}</span>
-              <span style={{ fontSize: 11, color: C.textLight }}>
-                {l.despatched && l.despatchDate ? new Date(l.despatchDate).toLocaleDateString("en-GB") : (l.drawingNo || "")}
-              </span>
-            </div>
-          ))}
+          {(job.lines || []).map((l, i) => {
+            const fully = isDespatched(l);
+            const dq = dqty(l);
+            const partial = dq > 0 && !fully;
+            return (
+              <div key={i} style={{
+                display: "grid", gridTemplateColumns: "1fr 60px 70px 80px 100px", gap: 8,
+                padding: "7px 10px", marginBottom: 4,
+                background: fully ? "#e8f5e9" : partial ? "#fff8e1" : C.silverLighter, borderRadius: 4, fontSize: 13
+              }}>
+                <span style={{ textDecoration: fully ? "line-through" : "none", color: fully ? C.textLight : C.text }}>
+                  {fully ? "✓ " : partial ? "◐ " : ""}{l.desc}
+                </span>
+                <span style={{ textAlign: "center" }}>× {l.qty}</span>
+                <span style={{ textAlign: "right", color: C.textLight, fontSize: 12 }}>{fmt(l.price)} ea</span>
+                <span style={{ textAlign: "right" }}>{fmt((l.qty || 0) * (l.price || 0))}</span>
+                <span style={{ fontSize: 11, color: partial ? C.warning : C.textLight }}>
+                  {partial ? `${dq}/${l.qty} sent` : fully && l.despatchDate ? new Date(l.despatchDate).toLocaleDateString("en-GB") : (l.drawingNo || "")}
+                </span>
+              </div>
+            );
+          })}
           <div style={{ textAlign: "right", fontWeight: 700, color: C.navy, fontSize: 15, padding: "4px 10px" }}>
             Total: {fmt(lineTotal(job.lines))}
           </div>
@@ -1023,7 +1099,7 @@ function JobDetail({ job: initialJob, jobs, customers, onClose, onRefresh, toast
           <Btn onClick={() => setShowDN(!showDN)} small outline>📋 Delivery Note</Btn>
         )}
         <Btn onClick={() => setView("jobsheet")} small outline>🖨 Job Sheet</Btn>
-        {(job.lines || []).some(l => l.despatched) && (
+        {(job.lines || []).some(l => dqty(l) > 0) && (
           <Btn onClick={resetDespatch} small danger outline>↺ Reset Despatch</Btn>
         )}
         {job.status === "Quote" && <Btn onClick={() => setView("quote")} small outline>📄 Print Quote</Btn>}
@@ -1050,7 +1126,7 @@ function MonthlyHours({ emp, bankHolidays }) {
     const loadMonth = async () => {
       try {
         const { data } = await supabase.from("hr_monthly_hours")
-          .select("*").eq("employee_id", emp.id).eq("month_key", monthKey).single();
+          .select("*").eq("employee_id", emp.id).eq("month_key", monthKey).maybeSingle();
         if (data) {
           setEntries(data.entries || {});
           setAdjustmentHours(data.adjustment_hours ? String(data.adjustment_hours) : "");
@@ -1421,11 +1497,14 @@ function HRModule({ toast }) {
     if (!leaveForm || !leaveForm.from || !leaveForm.to) return;
     const emp = employees.find(e => e.id === leaveForm.empId);
     if (!emp) return;
-    const updatedLeave = [...(emp.leave || []), { id: Date.now().toString(), type: leaveForm.type, from: leaveForm.from, to: leaveForm.to }];
+    const isEdit = !!leaveForm.id;
+    const updatedLeave = isEdit
+      ? (emp.leave || []).map(l => l.id === leaveForm.id ? { ...l, type: leaveForm.type, from: leaveForm.from, to: leaveForm.to } : l)
+      : [...(emp.leave || []), { id: Date.now().toString(), type: leaveForm.type, from: leaveForm.from, to: leaveForm.to }];
     const { error } = await supabase.from("hr_employees").update({ leave: updatedLeave }).eq("id", leaveForm.empId);
     if (error) { toast("Failed to save leave", "error"); return; }
     setLeaveForm(null);
-    toast("Leave recorded");
+    toast(isEdit ? "Leave updated" : "Leave recorded");
     loadEmployees();
   };
 
@@ -1515,7 +1594,7 @@ function HRModule({ toast }) {
       {leaveForm && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: C.white, borderRadius: 10, padding: 24, maxWidth: 380, width: "90%" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Add Leave — {employees.find(e => e.id === leaveForm.empId)?.name}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{leaveForm.id ? "Edit" : "Add"} Leave — {employees.find(e => e.id === leaveForm.empId)?.name}</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               {["Holiday", "Sickness"].map(t => (
                 <button key={t} onClick={() => setLeaveForm(f => ({ ...f, type: t }))} style={{
@@ -1611,7 +1690,8 @@ function HRModule({ toast }) {
                         {days} day{days !== 1 ? "s" : ""}
                         {bh > 0 && <span style={{ color: "#b8860b", marginLeft: 6 }}>+ {bh} bank hol{bh !== 1 ? "s" : ""}</span>}
                       </span>
-                      <button onClick={() => delLeave(emp.id, l.id)} style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 16 }}>×</button>
+                      <button onClick={() => setLeaveForm({ empId: emp.id, id: l.id, type: l.type, from: l.from, to: l.to })} title="Edit" style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 14 }}>✏</button>
+                      <button onClick={() => delLeave(emp.id, l.id)} title="Delete" style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 16 }}>×</button>
                     </div>
                   );
                 })}
@@ -1772,13 +1852,16 @@ function Dashboard({ jobs, onJobClick }) {
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{fmt(lineTotal(j.lines))}</span>
               </div>
             </div>
-            {(j.lines || []).map((l, i) => (
-              <div key={i} style={{ fontSize: 12, color: C.textLight }}>
-                {l.despatched ? <span style={{ color: C.success }}>✓ </span> : "• "}
-                {l.desc} × {l.qty}
-                {l.despatched && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
-              </div>
-            ))}
+            {(j.lines || []).map((l, i) => {
+              const fully = isDespatched(l); const dq = dqty(l); const partial = dq > 0 && !fully;
+              return (
+                <div key={i} style={{ fontSize: 12, color: C.textLight }}>
+                  {fully ? <span style={{ color: C.success }}>✓ </span> : partial ? <span style={{ color: C.warning }}>◐ </span> : "• "}
+                  {l.desc} × {l.qty}{partial ? ` (${dq}/${l.qty} sent)` : ""}
+                  {fully && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
+                </div>
+              );
+            })}
           </div>
         );
       })}
@@ -1828,13 +1911,16 @@ function JobsList({ jobs, onJobClick }) {
                 <span style={{ fontWeight: 700 }}>{fmt(lineTotal(j.lines))}</span>
               </div>
             </div>
-            {(j.lines || []).map((l, i) => (
-              <div key={i} style={{ fontSize: 12, color: C.textLight }}>
-                {l.despatched ? <span style={{ color: C.success }}>✓ </span> : "• "}
-                {l.desc} × {l.qty}
-                {l.despatched && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
-              </div>
-            ))}
+            {(j.lines || []).map((l, i) => {
+              const fully = isDespatched(l); const dq = dqty(l); const partial = dq > 0 && !fully;
+              return (
+                <div key={i} style={{ fontSize: 12, color: C.textLight }}>
+                  {fully ? <span style={{ color: C.success }}>✓ </span> : partial ? <span style={{ color: C.warning }}>◐ </span> : "• "}
+                  {l.desc} × {l.qty}{partial ? ` (${dq}/${l.qty} sent)` : ""}
+                  {fully && l.despatchDate ? <span style={{ fontSize: 11, marginLeft: 6 }}>({new Date(l.despatchDate).toLocaleDateString("en-GB")})</span> : null}
+                </div>
+              );
+            })}
           </div>
         );
       })}
